@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-JanOS Dev 0.0.1 - ESP32-C5 Controller
+JanOS App - ESP32-C5 Controller
 
-Usage: ./JanOS_dev_0.0.1.py
-Optional: ./JanOS_dev_0.0.1.py <device>
-Example: ./JanOS_dev_0.0.1.py /dev/ttyUSB0
+Usage: ./JanOS_app.py
+Optional: ./JanOS_app.py <device>
+Example: ./JanOS_app.py /dev/ttyUSB0
 """
 
 import sys
@@ -158,16 +158,16 @@ def print_usage() -> None:
     """Print CLI usage."""
     print(f"{Colors.CYAN}JanOS Controller{Colors.NC} - ESP32-C5 Wireless Controller")
     print()
-    print("Usage: ./JanOS_dev_0.0.1.py")
-    print("Optional: ./JanOS_dev_0.0.1.py <device>")
+    print("Usage: ./JanOS_app.py")
+    print("Optional: ./JanOS_app.py <device>")
     print()
     print("Arguments:")
     print("  device    Serial device path (e.g., /dev/ttyUSB0, /dev/cu.usbserial-*)")
     print()
     print("Examples:")
-    print("  ./JanOS_dev_0.0.1.py                      # Interactive selector")
-    print("  ./JanOS_dev_0.0.1.py /dev/ttyUSB0        # Linux")
-    print("  ./JanOS_dev_0.0.1.py /dev/cu.usbserial-0001  # macOS")
+    print("  ./JanOS_app.py                      # Interactive selector")
+    print("  ./JanOS_app.py /dev/ttyUSB0        # Linux")
+    print("  ./JanOS_app.py /dev/cu.usbserial-0001  # macOS")
     print()
 
 # ============================================================================
@@ -481,13 +481,20 @@ def select_device_interactive() -> str:
                 sys.exit(0)
             continue
         
-        print(f"{Colors.CYAN}Available devices:{Colors.NC}")
+        print(f"{Colors.CYAN}Available USB/UART devices:{Colors.NC}")
         for idx, port in enumerate(ports, 1):
-            mark = f"{Colors.GREEN}ESP32?{Colors.NC}" if is_probable_esp32(port) else f"{Colors.GRAY}unknown{Colors.NC}"
+            mark = (
+                f"{Colors.GREEN}ESP32-C5 candidate{Colors.NC}"
+                if is_probable_esp32(port)
+                else f"{Colors.GRAY}other USB/UART{Colors.NC}"
+            )
             desc = port.description or "Unknown"
             manuf = port.manufacturer or ""
+            hwid = port.hwid or ""
             extra = f" - {manuf}" if manuf else ""
             print(f"  {idx}) {port.device}  {Colors.GRAY}{desc}{extra}{Colors.NC}  [{mark}]")
+            if hwid:
+                print(f"      {Colors.DIM}{hwid}{Colors.NC}")
         
         print()
         choice = input("Select device number, [r] rescan, [m] manual, [q] quit: ").strip().lower()
