@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
 """
-JanOS - ESP32-C5 Controller
+JanOS Dev 0.0.1 - ESP32-C5 Controller
 
-Usage: ./JanOS_app.py <device>
-Example: ./JanOS_app.py /dev/ttyUSB0
+Usage: ./JanOS_dev_0.0.1.py
+Optional: ./JanOS_dev_0.0.1.py <device>
+Example: ./JanOS_dev_0.0.1.py /dev/ttyUSB0
 """
 
 import sys
 import os
 import time
 import serial
+from serial.tools import list_ports
 import threading
 import select
 import termios
@@ -17,6 +19,7 @@ import fcntl
 import tempfile
 import re
 import readline  # For better input handling
+import unicodedata
 from datetime import datetime
 from typing import List, Dict, Tuple, Optional, Any
 
@@ -88,6 +91,50 @@ def strip_ansi(text: str) -> str:
     ansi_escape = re.compile(r'\x1b\[[0-9;]*m')
     return ansi_escape.sub('', text)
 
+def char_display_width(ch: str) -> int:
+    """Estimate display width of one character in terminal."""
+    if not ch:
+        return 0
+    if unicodedata.combining(ch):
+        return 0
+    if unicodedata.east_asian_width(ch) in ("W", "F"):
+        return 2
+    return 1
+
+def display_width(text: str) -> int:
+    """Compute visual width of text (ANSI ignored)."""
+    clean = strip_ansi(text)
+    return sum(char_display_width(ch) for ch in clean)
+
+def fit_ansi_text(text: str, width: int) -> str:
+    """Trim/pad ANSI-colored text to exact display width."""
+    if width <= 0:
+        return ""
+
+    ansi_re = re.compile(r'(\x1b\[[0-9;]*m)')
+    tokens = ansi_re.split(text)
+    out = []
+    used = 0
+
+    for token in tokens:
+        if not token:
+            continue
+        if ansi_re.fullmatch(token):
+            out.append(token)
+            continue
+        for ch in token:
+            w = char_display_width(ch)
+            if used + w > width:
+                break
+            out.append(ch)
+            used += w
+        if used >= width:
+            break
+
+    if used < width:
+        out.append(" " * (width - used))
+    return "".join(out)
+
 def print_line(char: str = '═') -> None:
     """Print a horizontal line."""
     width = get_terminal_width()
@@ -97,9 +144,37 @@ def clear_screen() -> None:
     """Clear the terminal screen."""
     os.system('clear' if os.name != 'nt' else 'cls')
 
+def is_probable_esp32(port) -> bool:
+    """Heuristic check to guess ESP32 serial adapters."""
+    haystack = " ".join(filter(None, [port.description, port.manufacturer, port.hwid])).lower()
+    keywords = ["esp32", "cp210", "ch340", "silicon labs", "uart"]
+    return any(keyword in haystack for keyword in keywords)
+
+def list_serial_devices() -> List:
+    """Return a list of available serial devices."""
+    return list(list_ports.comports())
+
+def print_usage() -> None:
+    """Print CLI usage."""
+    print(f"{Colors.CYAN}JanOS Controller{Colors.NC} - ESP32-C5 Wireless Controller")
+    print()
+    print("Usage: ./JanOS_dev_0.0.1.py")
+    print("Optional: ./JanOS_dev_0.0.1.py <device>")
+    print()
+    print("Arguments:")
+    print("  device    Serial device path (e.g., /dev/ttyUSB0, /dev/cu.usbserial-*)")
+    print()
+    print("Examples:")
+    print("  ./JanOS_dev_0.0.1.py                      # Interactive selector")
+    print("  ./JanOS_dev_0.0.1.py /dev/ttyUSB0        # Linux")
+    print("  ./JanOS_dev_0.0.1.py /dev/cu.usbserial-0001  # macOS")
+    print()
+
 # ============================================================================
 # UI Components
 # ============================================================================
+COMPACT_BOX_WIDTH = 60
+
 class UI:
     @staticmethod
     def print_box_top() -> None:
@@ -178,40 +253,31 @@ class UI:
     @staticmethod
     def print_main_menu() -> None:
         """Print the main menu with categories."""
-        width = 60
-        
-        print()
-        print(f"{Colors.CYAN}╔════════════════════════════════════════════════════════════╗{Colors.NC}")
-        print(f"{Colors.CYAN}║{Colors.NC}                      {Colors.WHITE}{Colors.BOLD}MAIN MENU{Colors.NC}                            {Colors.CYAN}║{Colors.NC}")
-        print(f"{Colors.CYAN}╠════════════════════════════════════════════════════════════╣{Colors.NC}")
-        print(f"{Colors.CYAN}║{Colors.NC}                                                            {Colors.CYAN}║{Colors.NC}")
-        print(f"{Colors.CYAN}║{Colors.NC}   {Colors.GREEN}1){Colors.NC}  Scan Menu                                         {Colors.CYAN}║{Colors.NC}")
-        print(f"{Colors.CYAN}║{Colors.NC}   {Colors.GREEN}2){Colors.NC}  Sniffer Menu                                      {Colors.CYAN}║{Colors.NC}")
-        print(f"{Colors.CYAN}║{Colors.NC}   {Colors.GREEN}3){Colors.NC}  Attacks Menu                                      {Colors.CYAN}║{Colors.NC}")
-        print(f"{Colors.CYAN}║{Colors.NC}                                                            {Colors.CYAN}║{Colors.NC}")
-        print(f"{Colors.CYAN}║{Colors.NC}   {Colors.GRAY}0){Colors.NC}  Exit                                               {Colors.CYAN}║{Colors.NC}")
-        print(f"{Colors.CYAN}║{Colors.NC}                                                            {Colors.CYAN}║{Colors.NC}")
-        print(f"{Colors.CYAN}╚════════════════════════════════════════════════════════════╝{Colors.NC}")
-        print()
+        lines = [
+            "",
+            f"{Colors.GREEN}1){Colors.NC} Scan",
+            f"{Colors.GREEN}2){Colors.NC} Sniffer",
+            f"{Colors.GREEN}3){Colors.NC} Attacks",
+            f"{Colors.GREEN}4){Colors.NC} Wardrive",
+            f"{Colors.GREEN}5){Colors.NC} SD data",
+            f"{Colors.GREEN}6){Colors.NC} System",
+            "",
+            f"{Colors.GRAY}0){Colors.NC} Exit",
+        ]
+        UI.print_compact_box("MAIN MENU", lines, Colors.CYAN)
 
     @staticmethod
     def print_scan_menu(network_count: int, selected_networks: str) -> None:
         """Print the scan submenu."""
-        width = 60
-        
-        print()
-        print(f"{Colors.CYAN}╔════════════════════════════════════════════════════════════╗{Colors.NC}")
-        print(f"{Colors.CYAN}║{Colors.NC}                     {Colors.WHITE}{Colors.BOLD}SCAN MENU{Colors.NC}                             {Colors.CYAN}║{Colors.NC}")
-        print(f"{Colors.CYAN}╠════════════════════════════════════════════════════════════╣{Colors.NC}")
-        print(f"{Colors.CYAN}║{Colors.NC}                                                            {Colors.CYAN}║{Colors.NC}")
-        print(f"{Colors.CYAN}║{Colors.NC}   {Colors.GREEN}1){Colors.NC}  Scan Networks                                    {Colors.CYAN}║{Colors.NC}")
-        print(f"{Colors.CYAN}║{Colors.NC}   {Colors.GREEN}2){Colors.NC}  Show Scan Results                                {Colors.CYAN}║{Colors.NC}")
-        print(f"{Colors.CYAN}║{Colors.NC}   {Colors.GREEN}3){Colors.NC}  Select Networks                                  {Colors.CYAN}║{Colors.NC}")
-        print(f"{Colors.CYAN}║{Colors.NC}                                                            {Colors.CYAN}║{Colors.NC}")
-        print(f"{Colors.CYAN}║{Colors.NC}   {Colors.GRAY}0){Colors.NC}  Back to Main Menu                                {Colors.CYAN}║{Colors.NC}")
-        print(f"{Colors.CYAN}║{Colors.NC}                                                            {Colors.CYAN}║{Colors.NC}")
-        print(f"{Colors.CYAN}╚════════════════════════════════════════════════════════════╝{Colors.NC}")
-        print()
+        lines = [
+            "",
+            f"{Colors.GREEN}1){Colors.NC} Scan networks",
+            f"{Colors.GREEN}2){Colors.NC} Show scan results",
+            f"{Colors.GREEN}3){Colors.NC} Select networks",
+            "",
+            f"{Colors.GRAY}0){Colors.NC} Back to main menu",
+        ]
+        UI.print_compact_box("SCAN", lines, Colors.CYAN)
         
         # Status line
         if network_count > 0:
@@ -227,21 +293,15 @@ class UI:
     @staticmethod
     def print_sniffer_menu(sniffer_running: bool, packets_captured: int = 0) -> None:
         """Print the sniffer submenu."""
-        width = 60
-        
-        print()
-        print(f"{Colors.CYAN}╔════════════════════════════════════════════════════════════╗{Colors.NC}")
-        print(f"{Colors.CYAN}║{Colors.NC}                    {Colors.WHITE}{Colors.BOLD}SNIFFER MENU{Colors.NC}                            {Colors.CYAN}║{Colors.NC}")
-        print(f"{Colors.CYAN}╠════════════════════════════════════════════════════════════╣{Colors.NC}")
-        print(f"{Colors.CYAN}║{Colors.NC}                                                            {Colors.CYAN}║{Colors.NC}")
-        print(f"{Colors.CYAN}║{Colors.NC}   {Colors.GREEN}1){Colors.NC}  Start Sniffer                                     {Colors.CYAN}║{Colors.NC}")
-        print(f"{Colors.CYAN}║{Colors.NC}   {Colors.GREEN}2){Colors.NC}  Show Results                                      {Colors.CYAN}║{Colors.NC}")
-        print(f"{Colors.CYAN}║{Colors.NC}   {Colors.GREEN}3){Colors.NC}  Show Probes                                       {Colors.CYAN}║{Colors.NC}")
-        print(f"{Colors.CYAN}║{Colors.NC}                                                            {Colors.CYAN}║{Colors.NC}")
-        print(f"{Colors.CYAN}║{Colors.NC}   {Colors.GRAY}0){Colors.NC}  Back to Main Menu                                {Colors.CYAN}║{Colors.NC}")
-        print(f"{Colors.CYAN}║{Colors.NC}                                                            {Colors.CYAN}║{Colors.NC}")
-        print(f"{Colors.CYAN}╚════════════════════════════════════════════════════════════╝{Colors.NC}")
-        print()
+        lines = [
+            "",
+            f"{Colors.GREEN}1){Colors.NC} Start sniffer",
+            f"{Colors.GREEN}2){Colors.NC} Show results",
+            f"{Colors.GREEN}3){Colors.NC} Show probes",
+            "",
+            f"{Colors.GRAY}0){Colors.NC} Back to main menu",
+        ]
+        UI.print_compact_box("SNIFFER", lines, Colors.CYAN)
         
         # Status line
         if sniffer_running:
@@ -255,26 +315,21 @@ class UI:
     @staticmethod
     def print_attacks_menu(selected_networks: str, attack_running: bool, blackout_running: bool, 
                           sae_overflow_running: bool, handshake_running: bool, portal_running: bool,
-                          evil_twin_running: bool) -> None:
+                          evil_twin_running: bool, beacon_spam_running: bool = False) -> None:
         """Print the attacks submenu."""
-        width = 60
-        
-        print()
-        print(f"{Colors.CYAN}╔════════════════════════════════════════════════════════════╗{Colors.NC}")
-        print(f"{Colors.CYAN}║{Colors.NC}                    {Colors.WHITE}{Colors.BOLD}ATTACKS MENU{Colors.NC}                            {Colors.CYAN}║{Colors.NC}")
-        print(f"{Colors.CYAN}╠════════════════════════════════════════════════════════════╣{Colors.NC}")
-        print(f"{Colors.CYAN}║{Colors.NC}                                                            {Colors.CYAN}║{Colors.NC}")
-        print(f"{Colors.CYAN}║{Colors.NC}   {Colors.GREEN}1){Colors.NC}  Start Deauth Attack                              {Colors.CYAN}║{Colors.NC}")
-        print(f"{Colors.CYAN}║{Colors.NC}   {Colors.GREEN}2){Colors.NC}  Blackout Attack                                  {Colors.CYAN}║{Colors.NC}")
-        print(f"{Colors.CYAN}║{Colors.NC}   {Colors.GREEN}3){Colors.NC}  WPA3 SAE Overflow (Single Target)                {Colors.CYAN}║{Colors.NC}")
-        print(f"{Colors.CYAN}║{Colors.NC}   {Colors.GREEN}4){Colors.NC}  Handshake Capture                                {Colors.CYAN}║{Colors.NC}")
-        print(f"{Colors.CYAN}║{Colors.NC}   {Colors.GREEN}5){Colors.NC}  Portal Setup                                     {Colors.CYAN}║{Colors.NC}")
-        print(f"{Colors.CYAN}║{Colors.NC}   {Colors.MAGENTA}6){Colors.NC}  Evil Twin Attack                                {Colors.CYAN}║{Colors.NC}")
-        print(f"{Colors.CYAN}║{Colors.NC}   {Colors.RED}9){Colors.NC}  Stop All Attacks                                 {Colors.CYAN}║{Colors.NC}")
-        print(f"{Colors.CYAN}║{Colors.NC}   {Colors.GRAY}0){Colors.NC}  Back to Main Menu                                {Colors.CYAN}║{Colors.NC}")
-        print(f"{Colors.CYAN}║{Colors.NC}                                                            {Colors.CYAN}║{Colors.NC}")
-        print(f"{Colors.CYAN}╚════════════════════════════════════════════════════════════╝{Colors.NC}")
-        print()
+        lines = [
+            "",
+            f"{Colors.GREEN}1){Colors.NC} Deauth",
+            f"{Colors.GREEN}2){Colors.NC} Blackout",
+            f"{Colors.GREEN}3){Colors.NC} WPA3 SAE Overflow",
+            f"{Colors.GREEN}4){Colors.NC} Handshaker",
+            f"{Colors.GREEN}5){Colors.NC} Portal",
+            f"{Colors.GREEN}6){Colors.NC} Evil Twin",
+            f"{Colors.GREEN}7){Colors.NC} Beacon spam",
+            f"{Colors.RED}8){Colors.NC} Stop ALL actions",
+            f"{Colors.GRAY}0){Colors.NC} Back to main menu",
+        ]
+        UI.print_compact_box("ATTACKS", lines, Colors.CYAN)
         
         # Status line
         if selected_networks:
@@ -294,7 +349,9 @@ class UI:
             print(f"{Colors.BLUE}[!] Captive Portal is RUNNING{Colors.NC}")
         if evil_twin_running:
             print(f"{Colors.MAGENTA}[!] Evil Twin Attack is RUNNING{Colors.NC}")
-        if not attack_running and not blackout_running and not sae_overflow_running and not handshake_running and not portal_running and not evil_twin_running:
+        if beacon_spam_running:
+            print(f"{Colors.YELLOW}[!] Beacon spam is RUNNING{Colors.NC}")
+        if not attack_running and not blackout_running and not sae_overflow_running and not handshake_running and not portal_running and not evil_twin_running and not beacon_spam_running:
             print(f"{Colors.GRAY}[-] No attacks running{Colors.NC}")
         
         print()
@@ -302,38 +359,164 @@ class UI:
     @staticmethod
     def print_portal_menu() -> None:
         """Print the portal setup submenu."""
-        width = 60
-        
-        print()
-        print(f"{Colors.CYAN}╔════════════════════════════════════════════════════════════╗{Colors.NC}")
-        print(f"{Colors.CYAN}║{Colors.NC}                    {Colors.WHITE}{Colors.BOLD}PORTAL SETUP{Colors.NC}                            {Colors.CYAN}║{Colors.NC}")
-        print(f"{Colors.CYAN}╠════════════════════════════════════════════════════════════╣{Colors.NC}")
-        print(f"{Colors.CYAN}║{Colors.NC}                                                            {Colors.CYAN}║{Colors.NC}")
-        print(f"{Colors.CYAN}║{Colors.NC}   {Colors.GREEN}1){Colors.NC}  Setup and Start Captive Portal                   {Colors.CYAN}║{Colors.NC}")
-        print(f"{Colors.CYAN}║{Colors.NC}   {Colors.GREEN}2){Colors.NC}  Show Captured Data                               {Colors.CYAN}║{Colors.NC}")
-        print(f"{Colors.CYAN}║{Colors.NC}                                                            {Colors.CYAN}║{Colors.NC}")
-        print(f"{Colors.CYAN}║{Colors.NC}   {Colors.GRAY}0){Colors.NC}  Back to Attacks Menu                             {Colors.CYAN}║{Colors.NC}")
-        print(f"{Colors.CYAN}║{Colors.NC}                                                            {Colors.CYAN}║{Colors.NC}")
-        print(f"{Colors.CYAN}╚════════════════════════════════════════════════════════════╝{Colors.NC}")
-        print()
+        lines = [
+            "",
+            f"{Colors.GREEN}1){Colors.NC} Setup and start captive portal",
+            f"{Colors.GREEN}2){Colors.NC} Show captured data",
+            "",
+            f"{Colors.GRAY}0){Colors.NC} Back to attacks",
+        ]
+        UI.print_compact_box("PORTAL", lines, Colors.CYAN)
 
     @staticmethod
     def print_evil_twin_menu() -> None:
         """Print the evil twin setup submenu."""
-        width = 60
+        lines = [
+            "",
+            f"{Colors.GREEN}1){Colors.NC} Setup and start evil twin",
+            f"{Colors.GREEN}2){Colors.NC} Show captured data",
+            "",
+            f"{Colors.GRAY}0){Colors.NC} Back to attacks",
+        ]
+        UI.print_compact_box("EVIL TWIN", lines, Colors.CYAN)
+
+    @staticmethod
+    def print_system_menu() -> None:
+        """Print the system submenu."""
+        lines = [
+            "",
+            f"{Colors.GREEN}1){Colors.NC} Reboot device",
+            f"{Colors.GREEN}2){Colors.NC} Ping host",
+            f"{Colors.GREEN}3){Colors.NC} List SD card",
+            "",
+            f"{Colors.GRAY}0){Colors.NC} Back to main menu",
+        ]
+        UI.print_compact_box("SYSTEM", lines, Colors.CYAN)
+
+    @staticmethod
+    def print_wardrive_menu() -> None:
+        """Print the wardrive submenu."""
+        lines = [
+            "",
+            f"{Colors.GREEN}1){Colors.NC} Start wardrive",
+            f"{Colors.GREEN}2){Colors.NC} GPS setup",
+            "",
+            f"{Colors.GRAY}0){Colors.NC} Back to main menu",
+        ]
+        UI.print_compact_box("WARDRIVE", lines, Colors.CYAN)
+
+    @staticmethod
+    def print_gps_setup_menu() -> None:
+        """Print GPS setup submenu."""
+        lines = [
+            "",
+            f"{Colors.GREEN}1){Colors.NC} Read current GPS module",
+            f"{Colors.GREEN}2){Colors.NC} Set GPS module: m5",
+            f"{Colors.GREEN}3){Colors.NC} Set GPS module: atgm",
+            f"{Colors.GREEN}4){Colors.NC} Set GPS module: tab5",
+            f"{Colors.GREEN}5){Colors.NC} Set GPS module: cap",
+            f"{Colors.GREEN}6){Colors.NC} Start GPS raw monitor",
+            "",
+            f"{Colors.GRAY}0){Colors.NC} Back to wardrive menu",
+        ]
+        UI.print_compact_box("GPS SETUP", lines, Colors.CYAN)
+
+    @staticmethod
+    def print_sd_data_menu() -> None:
+        """Print SD data submenu."""
+        lines = [
+            "",
+            f"{Colors.GREEN}1){Colors.NC} htmls",
+            f"{Colors.GREEN}2){Colors.NC} evil twin & portal",
+            f"{Colors.GREEN}3){Colors.NC} warlogs",
+            f"{Colors.GREEN}4){Colors.NC} handshakes",
+            "",
+            f"{Colors.GRAY}0){Colors.NC} Back to main menu",
+        ]
+        UI.print_compact_box("SD DATA", lines, Colors.CYAN)
+
+    @staticmethod
+    def print_compact_box(title: str, lines: List[str], color: str = Colors.CYAN,
+                          width: int = COMPACT_BOX_WIDTH) -> None:
+        """Print a compact fixed-width box with centered title."""
+        width = max(30, width)
+        inner = width - 2
+        print(f"{color}╔{'═' * inner}╗{Colors.NC}")
+        title_text = f" {title} "
+        title_len = display_width(title_text)
+        if title_len > inner:
+            title_text = fit_ansi_text(title_text, inner)
+            title_len = display_width(title_text)
+        left_pad = max(0, (inner - title_len) // 2)
+        right_pad = max(0, inner - title_len - left_pad)
+        print(f"{color}║{Colors.NC}{' ' * left_pad}{Colors.WHITE}{Colors.BOLD}{title_text}{Colors.NC}{' ' * right_pad}{color}║{Colors.NC}")
+        print(f"{color}╠{'═' * inner}╣{Colors.NC}")
+        for line in lines:
+            fitted = fit_ansi_text(line, inner - 2)
+            print(f"{color}║{Colors.NC} {fitted} {color}║{Colors.NC}")
+        print(f"{color}╚{'═' * inner}╝{Colors.NC}")
+        print()
+
+def select_device_interactive() -> str:
+    """Interactive ESP32-C5 device selector."""
+    while True:
+        clear_screen()
+        UI.print_banner("Device setup", False, False, False, False, False, False, False)
+        print(f"{Colors.GRAY}Select the ESP32-C5 device to connect{Colors.NC}")
+        print()
+        
+        ports = list_serial_devices()
+        if not ports:
+            print(f"{Colors.RED}[!] No serial devices found{Colors.NC}")
+            print("Options: [r] rescan, [m] manual path, [q] quit")
+            choice = input("Select option: ").strip().lower()
+            if choice == 'r':
+                continue
+            if choice == 'm':
+                manual = input("Enter device path: ").strip()
+                if manual:
+                    return manual
+                continue
+            if choice == 'q':
+                sys.exit(0)
+            continue
+        
+        print(f"{Colors.CYAN}Available devices:{Colors.NC}")
+        for idx, port in enumerate(ports, 1):
+            mark = f"{Colors.GREEN}ESP32?{Colors.NC}" if is_probable_esp32(port) else f"{Colors.GRAY}unknown{Colors.NC}"
+            desc = port.description or "Unknown"
+            manuf = port.manufacturer or ""
+            extra = f" - {manuf}" if manuf else ""
+            print(f"  {idx}) {port.device}  {Colors.GRAY}{desc}{extra}{Colors.NC}  [{mark}]")
         
         print()
-        print(f"{Colors.CYAN}╔════════════════════════════════════════════════════════════╗{Colors.NC}")
-        print(f"{Colors.CYAN}║{Colors.NC}                   {Colors.WHITE}{Colors.BOLD}EVIL TWIN SETUP{Colors.NC}                           {Colors.CYAN}║{Colors.NC}")
-        print(f"{Colors.CYAN}╠════════════════════════════════════════════════════════════╣{Colors.NC}")
-        print(f"{Colors.CYAN}║{Colors.NC}                                                            {Colors.CYAN}║{Colors.NC}")
-        print(f"{Colors.CYAN}║{Colors.NC}   {Colors.GREEN}1){Colors.NC}  Setup and Start Evil Twin Attack                 {Colors.CYAN}║{Colors.NC}")
-        print(f"{Colors.CYAN}║{Colors.NC}   {Colors.GREEN}2){Colors.NC}  Show Captured Data                               {Colors.CYAN}║{Colors.NC}")
-        print(f"{Colors.CYAN}║{Colors.NC}                                                            {Colors.CYAN}║{Colors.NC}")
-        print(f"{Colors.CYAN}║{Colors.NC}   {Colors.GRAY}0){Colors.NC}  Back to Attacks Menu                             {Colors.CYAN}║{Colors.NC}")
-        print(f"{Colors.CYAN}║{Colors.NC}                                                            {Colors.CYAN}║{Colors.NC}")
-        print(f"{Colors.CYAN}╚════════════════════════════════════════════════════════════╝{Colors.NC}")
-        print()
+        choice = input("Select device number, [r] rescan, [m] manual, [q] quit: ").strip().lower()
+        if choice == 'r':
+            continue
+        if choice == 'm':
+            manual = input("Enter device path: ").strip()
+            if manual:
+                return manual
+            continue
+        if choice == 'q':
+            sys.exit(0)
+        
+        if not choice.isdigit():
+            print(f"{Colors.RED}Invalid selection{Colors.NC}")
+            time.sleep(1)
+            continue
+        
+        index = int(choice) - 1
+        if index < 0 or index >= len(ports):
+            print(f"{Colors.RED}Selection out of range{Colors.NC}")
+            time.sleep(1)
+            continue
+        
+        selected = ports[index]
+        desc = selected.description or "Unknown"
+        confirm = input(f"Use {selected.device} ({desc})? [Y/n]: ").strip().lower()
+        if confirm in ['', 'y', 'yes']:
+            return selected.device
 
 # ============================================================================
 # Serial Communication
@@ -416,6 +599,31 @@ class SerialManager:
                 time.sleep(0.1)
         
         return lines
+
+    def read_until_silence(self, max_wait: float = 8.0, idle_timeout: float = 1.2) -> List[str]:
+        """Read lines until no new data appears for idle_timeout seconds."""
+        if not self.serial_conn:
+            return []
+
+        lines = []
+        start_time = time.time()
+        last_data_time = start_time
+
+        while time.time() - start_time < max_wait:
+            if self.serial_conn.in_waiting:
+                try:
+                    line = self.serial_conn.readline().decode('utf-8', errors='replace').strip()
+                    if line:
+                        lines.append(line)
+                        last_data_time = time.time()
+                except Exception:
+                    continue
+            else:
+                if lines and (time.time() - last_data_time) >= idle_timeout:
+                    break
+                time.sleep(0.05)
+
+        return lines
     
     def read_sniffer_data(self, update_callback, stop_event) -> None:
         """Read sniffer data with dynamic update."""
@@ -427,9 +635,7 @@ class SerialManager:
                 try:
                     line = self.serial_conn.readline().decode('utf-8', errors='replace').strip()
                     if line:
-                        # Look for packet count in sniffer output
-                        if "packets" in line.lower() or "captured" in line.lower():
-                            update_callback(line)
+                        update_callback(line)
                 except Exception:
                     pass
             time.sleep(0.1)
@@ -548,11 +754,13 @@ class NetworkManager:
             return
         
         clear_screen()
-        print()
-        print(f"{Colors.CYAN}╔══════════════════════════════════════════════════════════════════════════════╗{Colors.NC}")
-        print(f"{Colors.CYAN}║{Colors.NC}  {Colors.WHITE}#{Colors.NC}   {Colors.WHITE}SSID{Colors.NC}                        {Colors.WHITE}BSSID{Colors.NC}              {Colors.WHITE}CH{Colors.NC}  {Colors.WHITE}RSSI{Colors.NC}  {Colors.WHITE}Auth{Colors.NC}         {Colors.CYAN}║{Colors.NC}")
-        print(f"{Colors.CYAN}╠══════════════════════════════════════════════════════════════════════════════╣{Colors.NC}")
-        
+        terminal_width = get_terminal_width()
+        table_width = max(40, min(terminal_width - 4, 110))
+        lines = [
+            f"{Colors.WHITE}#   SSID                      BSSID              CH  RSSI   Auth{Colors.NC}",
+            ""
+        ]
+
         for network in self.networks:
             idx = network.get('index', '?')
             ssid = network.get('ssid', '?')
@@ -570,11 +778,17 @@ class NetworkManager:
                 auth = auth[:10] + ".."
             
             rssi_color = self.get_rssi_color(rssi)
-            
-            print(f"{Colors.CYAN}║{Colors.NC}  {Colors.GREEN}{idx:<3}{Colors.NC} {ssid:<26} {Colors.GRAY}{bssid:<17}{Colors.NC} {channel:<3} {rssi_color}{rssi:<5}{Colors.NC} {auth:<12}{Colors.CYAN}║{Colors.NC}")
-        
-        print(f"{Colors.CYAN}╚══════════════════════════════════════════════════════════════════════════════╝{Colors.NC}")
-        print()
+            row = (
+                f"{Colors.GREEN}{idx:<3}{Colors.NC} "
+                f"{ssid:<25} "
+                f"{Colors.GRAY}{bssid:<17}{Colors.NC} "
+                f"{channel:<3} "
+                f"{rssi_color}{rssi:<6}{Colors.NC} "
+                f"{auth:<12}"
+            )
+            lines.append(row)
+
+        UI.print_compact_box("SCAN RESULTS", lines, Colors.CYAN, width=table_width)
         
         if self.selected_networks:
             print(f"{Colors.GREEN}[+] Selected networks: {Colors.WHITE}{self.selected_networks}{Colors.NC}")
@@ -597,6 +811,8 @@ class JanOS:
         self.handshake_running = False
         self.portal_running = False
         self.evil_twin_running = False
+        self.wardrive_running = False
+        self.beacon_spam_running = False
         self.sniffer_packets = 0
         self.sniffer_thread = None
         self.stop_sniffer_event = threading.Event()
@@ -604,6 +820,8 @@ class JanOS:
         self.stop_portal_event = threading.Event()
         self.evil_twin_thread = None
         self.stop_evil_twin_event = threading.Event()
+        self.wardrive_thread = None
+        self.stop_wardrive_event = threading.Event()
         self.portal_html_files = []
         self.selected_html_index = -1
         self.selected_html_name = ""
@@ -614,7 +832,10 @@ class JanOS:
         self.evil_twin_ssid = ""
         self.evil_twin_captured_data = []
         self.evil_twin_client_count = 0
+        self.wardrive_logged_networks = 0
+        self.wardrive_last_file = ""
         self.os_type = detect_os()
+        self.last_sniffer_line = ""
         
         if self.os_type == 'unknown':
             print(f"{Colors.RED}Error: Unsupported operating system{Colors.NC}")
@@ -622,30 +843,40 @@ class JanOS:
     
     def show_usage(self) -> None:
         """Show usage information."""
-        print(f"{Colors.CYAN}JanOS Controller{Colors.NC} - ESP32-C5 Wireless Controller")
-        print()
-        print("Usage: ./janos_controller.py <device>")
-        print()
-        print("Arguments:")
-        print("  device    Serial device path (e.g., /dev/ttyUSB0, /dev/cu.usbserial-*)")
-        print()
-        print("Examples:")
-        print("  ./janos_controller.py /dev/ttyUSB0        # Linux")
-        print("  ./janos_controller.py /dev/cu.usbserial-0001  # macOS")
-        print()
+        print_usage()
     
     def update_sniffer_display(self, data: str) -> None:
         """Update sniffer packet count from received data."""
-        # Try to extract packet count from the data
+        # Try to extract packet count from various formats
         import re
-        match = re.search(r'(\d+)\s+packets?', data, re.IGNORECASE)
+        if not data or data == self.last_sniffer_line:
+            return
+        self.last_sniffer_line = data
+
+        match = re.search(r'(?:packets?|pkts?)\s*[:=]\s*(\d+)', data, re.IGNORECASE)
+        if not match:
+            match = re.search(r'(?:captured|capture)\s*[:=]?\s*(\d+)', data, re.IGNORECASE)
+        if not match:
+            match = re.search(r'(\d+)\s*(?:packets?|pkts?)', data, re.IGNORECASE)
         if match:
             self.sniffer_packets = int(match.group(1))
-        elif "captured" in data.lower():
-            # Another common format
-            match = re.search(r'captured:\s*(\d+)', data, re.IGNORECASE)
-            if match:
-                self.sniffer_packets = int(match.group(1))
+            return
+
+        # Fallback: count lines that look like packet data
+        if re.search(r'([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})', data):
+            self.sniffer_packets += 1
+            return
+
+        lower = data.lower()
+        ignore_prefixes = (
+            "sniffer", "total", "starting", "stopping", "scan",
+            "wifi", "channel", "packets", "probe", "error", "failed"
+        )
+        if lower.startswith(ignore_prefixes) or data.startswith(">"):
+            return
+
+        if data.strip():
+            self.sniffer_packets += 1
     
     def update_portal_display(self, data: str) -> None:
         """Update portal display with real-time data."""
@@ -714,6 +945,53 @@ class JanOS:
             print(f"{Colors.RED}[!] {data}{Colors.NC}")
         elif "started successfully" in data or "broadcasting" in data:
             print(f"{Colors.GREEN}[+] {data}{Colors.NC}")
+
+    def update_wardrive_display(self, data: str) -> None:
+        """Update wardrive status from UART output."""
+        if not data:
+            return
+
+        if "Waiting for GPS fix" in data:
+            print(f"\n{Colors.YELLOW}[*] {data}{Colors.NC}")
+            return
+        if "GPS fix obtained" in data or "GPS fix recovered" in data:
+            print(f"\n{Colors.GREEN}[+] {data}{Colors.NC}")
+            return
+        if "GPS fix lost" in data:
+            print(f"\n{Colors.RED}[!] {data}{Colors.NC}")
+            return
+        if "Logged" in data and "/sdcard/lab/wardrives/" in data:
+            logged_match = re.search(r'Logged\s+(\d+)\s+networks', data, re.IGNORECASE)
+            if logged_match:
+                self.wardrive_logged_networks = int(logged_match.group(1))
+            file_match = re.search(r'(/sdcard/lab/wardrives/\S+)', data)
+            if file_match:
+                self.wardrive_last_file = file_match.group(1)
+            print(f"\n{Colors.CYAN}[+] {data}{Colors.NC}")
+            return
+
+        # Keep very verbose CSV lines out of the terminal.
+        if "," in data and data.count(",") >= 8:
+            return
+
+        if any(x in data.lower() for x in ("wardrive", "gps", "error", "failed")):
+            print(f"\n{Colors.GRAY}{data}{Colors.NC}")
+
+    def wait_for_enter_with_status(self, status_builder, poll_interval: float = 1.0) -> None:
+        """Show status line in loop until user presses Enter."""
+        print(f"{Colors.WHITE}Press Enter to stop...{Colors.NC}")
+        while True:
+            status = status_builder()
+            print(f"\r{fit_ansi_text(status, max(20, get_terminal_width() - 1))}", end="", flush=True)
+            try:
+                ready, _, _ = select.select([sys.stdin], [], [], poll_interval)
+                if ready:
+                    sys.stdin.readline()
+                    print()
+                    return
+            except (OSError, ValueError):
+                # Non-interactive stdin: keep running until Ctrl+C.
+                time.sleep(poll_interval)
     
     def do_scan(self) -> None:
         """Perform network scan."""
@@ -735,8 +1013,6 @@ class JanOS:
         
         # Read response with progress display
         start_time = time.time()
-        print(f"{Colors.MAGENTA}[DEBUG] Starting scan...{Colors.NC}")
-        print()
         
         # Read lines from serial
         try:
@@ -744,10 +1020,8 @@ class JanOS:
                 elapsed = int(time.time() - start_time)
                 print(f"\r    Elapsed: {elapsed}s / {SCAN_TIMEOUT}s  ", end="", flush=True)
                 
-                lines = self.serial_mgr.read_response(timeout=1)
+                lines = self.serial_mgr.read_until_silence(max_wait=1.0, idle_timeout=0.4)
                 for line in lines:
-                    print(f"\n[SERIAL] {line}")
-                    
                     # Parse network lines
                     if line.startswith('"'):
                         self.network_mgr.add_network(line)
@@ -780,6 +1054,28 @@ class JanOS:
         
         print()
         input("Press Enter to continue...")
+
+    def show_scan_results(self) -> None:
+        """Fetch and display latest scan results from device."""
+        print(f"{Colors.YELLOW}[*] Requesting scan results from device...{Colors.NC}")
+        self.serial_mgr.send_command("show_scan_results")
+        lines = self.serial_mgr.read_until_silence(max_wait=6, idle_timeout=1.0)
+
+        parsed_networks = 0
+        for line in lines:
+            if line.startswith('"'):
+                if parsed_networks == 0:
+                    self.network_mgr.clear_networks()
+                self.network_mgr.add_network(line)
+                parsed_networks += 1
+
+        if parsed_networks == 0 and self.network_mgr.network_count == 0:
+            print(f"{Colors.YELLOW}[!] No scan results available. Run scan first.{Colors.NC}")
+            print()
+            input("Press Enter to continue...")
+            return
+
+        self.network_mgr.display_networks()
     
     def select_networks_menu(self) -> None:
         """Network selection menu."""
@@ -841,35 +1137,32 @@ class JanOS:
         time.sleep(1)
     
     def start_sniffer(self) -> None:
-        """Start sniffer with dynamic packet counter."""
+        """Start sniffer with stable live counter and Enter-to-stop."""
         clear_screen()
         UI.print_banner(self.device, self.attack_running, self.blackout_running, 
                        self.sniffer_running, self.sae_overflow_running,
                        self.handshake_running, self.portal_running,
                        self.evil_twin_running)
-        print()
-        print(f"{Colors.CYAN}╔══════════════════════════════════════════════════════════════════════════════╗{Colors.NC}")
-        print(f"{Colors.CYAN}║{Colors.NC}                      {Colors.WHITE}{Colors.BOLD}📡  SNIFFER MODE  📡{Colors.NC}                                  {Colors.CYAN}║{Colors.NC}")
-        print(f"{Colors.CYAN}╠══════════════════════════════════════════════════════════════════════════════╣{Colors.NC}")
-        print(f"{Colors.CYAN}║{Colors.NC}                                                                              {Colors.CYAN}║{Colors.NC}")
-        print(f"{Colors.CYAN}║{Colors.NC}  {Colors.YELLOW}Starting WiFi packet sniffer...{Colors.NC}                                             {Colors.CYAN}║{Colors.NC}")
-        print(f"{Colors.CYAN}║{Colors.NC}                                                                              {Colors.CYAN}║{Colors.NC}")
-        print(f"{Colors.CYAN}║{Colors.NC}  {Colors.GRAY}The sniffer will capture all WiFi packets in range.{Colors.NC}                            {Colors.CYAN}║{Colors.NC}")
-        print(f"{Colors.CYAN}║{Colors.NC}  {Colors.GRAY}Press ANY key to stop sniffing.{Colors.NC}                                             {Colors.CYAN}║{Colors.NC}")
-        print(f"{Colors.CYAN}║{Colors.NC}                                                                              {Colors.CYAN}║{Colors.NC}")
-        print(f"{Colors.CYAN}╚══════════════════════════════════════════════════════════════════════════════╝{Colors.NC}")
-        print()
+        UI.print_compact_box(
+            "SNIFFER MODE",
+            [
+                f"{Colors.YELLOW}Starting sniffer...{Colors.NC}",
+                f"{Colors.GRAY}Press any key to stop{Colors.NC}"
+            ],
+            Colors.CYAN
+        )
         
         # Check if we have scanned networks
         if self.network_mgr.network_count > 0:
-            print(f"{Colors.YELLOW}[*] Networks already scanned. Starting sniffer without scanning...{Colors.NC}")
+            print(f"{Colors.YELLOW}[*] Using existing scan results{Colors.NC}")
             self.serial_mgr.send_command("start_sniffer_noscan")
         else:
-            print(f"{Colors.YELLOW}[*] No networks scanned yet. Sniffer will scan networks first...{Colors.NC}")
+            print(f"{Colors.YELLOW}[*] Scanning before start...{Colors.NC}")
             self.serial_mgr.send_command("start_sniffer")
         
         # Reset packet counter
         self.sniffer_packets = 0
+        self.last_sniffer_line = ""
         self.sniffer_running = True
         
         # Start background thread for reading sniffer data
@@ -881,48 +1174,17 @@ class JanOS:
         self.sniffer_thread.daemon = True
         self.sniffer_thread.start()
         
-        print(f"{Colors.CYAN}[+] Sniffer started!{Colors.NC}")
-        print(f"{Colors.CYAN}[📡] Capturing packets...{Colors.NC}")
-        print()
-        print(f"{Colors.WHITE}Press ANY key to stop sniffing{Colors.NC}")
-        print()
-        
-        # Dynamic packet counter display
-        last_packet_count = -1
+        print(f"{Colors.CYAN}[+] Sniffer running{Colors.NC}")
         start_time = time.time()
         
         try:
-            # Wait for any key press
-            print(f"{Colors.GRAY}Waiting for key press to stop...{Colors.NC}")
-            import sys
-            import termios
-            import tty
-            
-            # Save terminal settings
-            old_settings = termios.tcgetattr(sys.stdin)
-            try:
-                # Set terminal to raw mode
-                tty.setraw(sys.stdin.fileno())
-                
-                while True:
-                    # Check for any key press
-                    if select.select([sys.stdin], [], [], 0.1)[0]:
-                        key = sys.stdin.read(1)
-                        if key:  # Any key pressed
-                            break
-                    
-                    # Update display if packet count changed
-                    if self.sniffer_packets != last_packet_count:
-                        elapsed = int(time.time() - start_time)
-                        print(f"\r{Colors.CYAN}[📡] Packets captured: {Colors.WHITE}{self.sniffer_packets}{Colors.CYAN} | Time: {elapsed}s{Colors.NC}", end="", flush=True)
-                        last_packet_count = self.sniffer_packets
-                    
-                    time.sleep(SNIFFER_UPDATE_INTERVAL)
-            
-            finally:
-                # Restore terminal settings
-                termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_settings)
-        
+            self.wait_for_enter_with_status(
+                lambda: (
+                    f"{Colors.CYAN}Sniffer packets: {Colors.WHITE}{self.sniffer_packets}"
+                    f"{Colors.CYAN} | Time: {int(time.time() - start_time)}s{Colors.NC}"
+                ),
+                poll_interval=SNIFFER_UPDATE_INTERVAL
+            )
         except KeyboardInterrupt:
             pass
         
@@ -936,94 +1198,65 @@ class JanOS:
             if self.sniffer_thread:
                 self.sniffer_thread.join(timeout=2)
             
-            print(f"{Colors.GREEN}[+] Sniffer stopped{Colors.NC}")
-            print(f"{Colors.GREEN}[+] Total packets captured: {self.sniffer_packets}{Colors.NC}")
-            print()
+            print(f"{Colors.GREEN}[+] Sniffer stopped ({self.sniffer_packets} packets){Colors.NC}")
             input("Press Enter to continue...")
     
     def show_sniffer_results(self) -> None:
-        """Show sniffer results with proper parsing."""
+        """Show sniffer AP-client results."""
         clear_screen()
         UI.print_banner(self.device, self.attack_running, self.blackout_running, 
                        self.sniffer_running, self.sae_overflow_running,
                        self.handshake_running, self.portal_running,
                        self.evil_twin_running)
-        print()
-        print(f"{Colors.CYAN}╔══════════════════════════════════════════════════════════════════════════════╗{Colors.NC}")
-        print(f"{Colors.CYAN}║{Colors.NC}                   {Colors.WHITE}{Colors.BOLD}📡  SNIFFER RESULTS  📡{Colors.NC}                                 {Colors.CYAN}║{Colors.NC}")
-        print(f"{Colors.CYAN}╠══════════════════════════════════════════════════════════════════════════════╣{Colors.NC}")
-        print(f"{Colors.CYAN}║{Colors.NC}                                                                              {Colors.CYAN}║{Colors.NC}")
-        
-        if self.sniffer_running:
-            print(f"{Colors.CYAN}║{Colors.NC}  {Colors.YELLOW}Sniffer is currently running. Stopping to show results...{Colors.NC}                     {Colors.CYAN}║{Colors.NC}")
-            print(f"{Colors.CYAN}║{Colors.NC}                                                                              {Colors.CYAN}║{Colors.NC}")
-        
-        print(f"{Colors.CYAN}║{Colors.NC}  {Colors.YELLOW}Total packets captured: {Colors.WHITE}{self.sniffer_packets}{Colors.NC}{' ' * (40 - len(str(self.sniffer_packets)))}{Colors.CYAN}║{Colors.NC}")
-        print(f"{Colors.CYAN}║{Colors.NC}                                                                              {Colors.CYAN}║{Colors.NC}")
-        print(f"{Colors.CYAN}╚══════════════════════════════════════════════════════════════════════════════╝{Colors.NC}")
-        print()
         
         # Stop sniffer if it's running to get results
         if self.sniffer_running:
-            print(f"{Colors.YELLOW}[*] Stopping sniffer to show results...{Colors.NC}")
+            print(f"{Colors.YELLOW}[*] Stopping sniffer...{Colors.NC}")
             self.serial_mgr.send_command("stop")
             self.sniffer_running = False
             self.stop_sniffer_event.set()
+            if self.sniffer_thread:
+                self.sniffer_thread.join(timeout=2)
             time.sleep(1)
         
         # Request results from ESP32
-        print(f"{Colors.CYAN}[*] Requesting sniffer results from device...{Colors.NC}")
+        print(f"{Colors.CYAN}[*] Requesting results...{Colors.NC}")
         self.serial_mgr.send_command("show_sniffer_results")
         
-        # Read and display results
-        print(f"{Colors.CYAN}[*] Reading results...{Colors.NC}")
-        print()
-        
-        lines = self.serial_mgr.read_response(timeout=5)
-        
-        if lines:
-            # Parse and display results in a table
-            print(f"{Colors.CYAN}╔══════════════════════════════════════════════════════════════════════════════╗{Colors.NC}")
-            print(f"{Colors.CYAN}║{Colors.NC}  {Colors.WHITE}Type{Colors.NC}       {Colors.WHITE}Source MAC{Colors.NC}         {Colors.WHITE}Destination MAC{Colors.NC}    {Colors.WHITE}Size{Colors.NC}  {Colors.WHITE}Info{Colors.NC}      {Colors.CYAN}║{Colors.NC}")
-            print(f"{Colors.CYAN}╠══════════════════════════════════════════════════════════════════════════════╣{Colors.NC}")
-            
-            packet_count = 0
-            for line in lines:
-                if line and not line.startswith("Sniffer") and not line.startswith("Total"):  # Filter header lines
-                    # Try to parse different packet formats
-                    parts = line.split()
-                    if len(parts) >= 5:
-                        # Common WiFi packet format
-                        pkt_type = parts[0]
-                        src_mac = parts[1] if len(parts) > 1 else "N/A"
-                        dst_mac = parts[2] if len(parts) > 2 else "N/A"
-                        size = parts[3] if len(parts) > 3 else "N/A"
-                        info = " ".join(parts[4:]) if len(parts) > 4 else ""
-                        
-                        # Color code packet types
-                        if "BEACON" in pkt_type.upper():
-                            pkt_color = Colors.GREEN
-                        elif "PROBE" in pkt_type.upper():
-                            pkt_color = Colors.YELLOW
-                        elif "DATA" in pkt_type.upper():
-                            pkt_color = Colors.CYAN
-                        elif "AUTH" in pkt_type.upper() or "DEAUTH" in pkt_type.upper():
-                            pkt_color = Colors.RED
-                        else:
-                            pkt_color = Colors.GRAY
-                        
-                        # Truncate if too long
-                        if len(info) > 15:
-                            info = info[:12] + "..."
-                        
-                        print(f"{Colors.CYAN}║{Colors.NC}  {pkt_color}{pkt_type:<10}{Colors.NC} {src_mac:<17} {dst_mac:<17} {size:<5} {info:<15}{Colors.CYAN}║{Colors.NC}")
-                        packet_count += 1
-                    elif line.strip():  # Show any non-empty line
-                        print(f"{Colors.CYAN}║{Colors.NC}  {Colors.GRAY}{line:<70}{Colors.NC}  {Colors.CYAN}║{Colors.NC}")
-            
-            print(f"{Colors.CYAN}╚══════════════════════════════════════════════════════════════════════════════╝{Colors.NC}")
-            print()
-            print(f"{Colors.GREEN}[+] Displayed {packet_count} packets{Colors.NC}")
+        lines = self.serial_mgr.read_until_silence(max_wait=8, idle_timeout=1.0)
+        filtered = [
+            line for line in lines
+            if line and not line.startswith(">") and "show_sniffer_results" not in line.lower()
+        ]
+
+        ap_count = 0
+        client_count = 0
+        display_lines: List[str] = []
+        for line in filtered:
+            if line.startswith("No APs with clients"):
+                display_lines.append(f"{Colors.YELLOW}{line}{Colors.NC}")
+                continue
+            if line.startswith(" "):
+                client_count += 1
+                display_lines.append(f"{Colors.GRAY}{line}{Colors.NC}")
+                continue
+            ap_count += 1
+            display_lines.append(f"{Colors.GREEN}{line}{Colors.NC}")
+
+        if client_count > 0:
+            self.sniffer_packets = max(self.sniffer_packets, client_count)
+
+        summary_lines = [
+            f"{Colors.YELLOW}APs: {ap_count}{Colors.NC}",
+            f"{Colors.YELLOW}Clients: {client_count}{Colors.NC}",
+            f"{Colors.YELLOW}Live packets counter: {self.sniffer_packets}{Colors.NC}",
+        ]
+        UI.print_compact_box("SNIFFER RESULTS", summary_lines, Colors.CYAN)
+
+        if display_lines:
+            print(f"{Colors.CYAN}Output:{Colors.NC}")
+            for line in display_lines:
+                print(line)
         else:
             print(f"{Colors.YELLOW}[!] No results received from device{Colors.NC}")
             print(f"{Colors.YELLOW}[*] Try starting the sniffer first to capture packets{Colors.NC}")
@@ -1032,25 +1265,12 @@ class JanOS:
         input("Press Enter to continue...")
     
     def show_sniffer_probes(self) -> None:
-        """Show probe requests from sniffer with proper parsing."""
+        """Show probe requests captured by sniffer."""
         clear_screen()
         UI.print_banner(self.device, self.attack_running, self.blackout_running, 
                        self.sniffer_running, self.sae_overflow_running,
                        self.handshake_running, self.portal_running,
                        self.evil_twin_running)
-        print()
-        print(f"{Colors.CYAN}╔══════════════════════════════════════════════════════════════════════════════╗{Colors.NC}")
-        print(f"{Colors.CYAN}║{Colors.NC}                    {Colors.WHITE}{Colors.BOLD}📡  PROBE REQUESTS  📡{Colors.NC}                                 {Colors.CYAN}║{Colors.NC}")
-        print(f"{Colors.CYAN}╠══════════════════════════════════════════════════════════════════════════════╣{Colors.NC}")
-        print(f"{Colors.CYAN}║{Colors.NC}                                                                              {Colors.CYAN}║{Colors.NC}")
-        
-        if self.sniffer_running:
-            print(f"{Colors.CYAN}║{Colors.NC}  {Colors.YELLOW}Sniffer is currently running. Stopping to show probe requests...{Colors.NC}              {Colors.CYAN}║{Colors.NC}")
-            print(f"{Colors.CYAN}║{Colors.NC}                                                                              {Colors.CYAN}║{Colors.NC}")
-        
-        print(f"{Colors.CYAN}║{Colors.NC}  {Colors.YELLOW}Total packets captured: {Colors.WHITE}{self.sniffer_packets}{Colors.NC}{' ' * (40 - len(str(self.sniffer_packets)))}{Colors.CYAN}║{Colors.NC}")
-        print(f"{Colors.CYAN}║{Colors.NC}                                                                              {Colors.CYAN}║{Colors.NC}")
-        print(f"{Colors.CYAN}╚══════════════════════════════════════════════════════════════════════════════╝{Colors.NC}")
         print()
         
         # Stop sniffer if it's running to get results
@@ -1059,101 +1279,39 @@ class JanOS:
             self.serial_mgr.send_command("stop")
             self.sniffer_running = False
             self.stop_sniffer_event.set()
+            if self.sniffer_thread:
+                self.sniffer_thread.join(timeout=2)
             time.sleep(1)
         
         # Request probe results from ESP32
         print(f"{Colors.CYAN}[*] Requesting probe requests from device...{Colors.NC}")
         self.serial_mgr.send_command("show_probes")
         
-        # Read and display results
-        print(f"{Colors.CYAN}[*] Reading probe requests...{Colors.NC}")
-        print()
+        lines = self.serial_mgr.read_until_silence(max_wait=8, idle_timeout=1.0)
+        probe_lines = []
+        announced_total = None
+        for line in lines:
+            if not line or line.startswith(">"):
+                continue
+            if "show_probes" in line.lower():
+                continue
+            total_match = re.search(r'Probe requests:\s*(\d+)', line, re.IGNORECASE)
+            if total_match:
+                announced_total = int(total_match.group(1))
+                continue
+            probe_lines.append(line)
+
+        UI.print_compact_box(
+            "PROBE REQUESTS",
+            [f"{Colors.YELLOW}Probes: {len(probe_lines)}{Colors.NC}"]
+            + ([f"{Colors.YELLOW}Reported by device: {announced_total}{Colors.NC}"] if announced_total is not None else []),
+            Colors.CYAN
+        )
         
-        lines = self.serial_mgr.read_response(timeout=5)
-        
-        if lines:
-            # Parse and display probe requests in a table
-            print(f"{Colors.CYAN}╔══════════════════════════════════════════════════════════════════════════════╗{Colors.NC}")
-            print(f"{Colors.CYAN}║{Colors.NC}  {Colors.WHITE}#{Colors.NC}  {Colors.WHITE}Client MAC{Colors.NC}             {Colors.WHITE}SSID{Colors.NC}                           {Colors.WHITE}RSSI{Colors.NC}   {Colors.WHITE}Time{Colors.NC}    {Colors.CYAN}║{Colors.NC}")
-            print(f"{Colors.CYAN}╠══════════════════════════════════════════════════════════════════════════════╣{Colors.NC}")
-            
-            probe_count = 0
-            for line in lines:
-                if line and not line.startswith("Probe") and not line.startswith("Total"):  # Filter header lines
-                    probe_count += 1
-                    
-                    # Try different parsing formats for probe requests
-                    # Format 1: "Client: AA:BB:CC:DD:EE:FF, SSID: MyNetwork, RSSI: -45"
-                    # Format 2: "AA:BB:CC:DD:EE:FF -> MyNetwork (-55dBm)"
-                    # Format 3: "Probe: AA:BB:CC:DD:EE:FF looking for SSID"
-                    
-                    client_mac = "N/A"
-                    ssid = "<hidden>"
-                    rssi = "N/A"
-                    timestamp = ""
-                    
-                    # Parse MAC address (look for XX:XX:XX:XX:XX:XX pattern)
-                    mac_pattern = r'([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})'
-                    mac_match = re.search(mac_pattern, line)
-                    if mac_match:
-                        client_mac = mac_match.group(0)
-                    
-                    # Parse SSID (look for text after "SSID:", "->", or "looking for")
-                    if "SSID:" in line:
-                        ssid_part = line.split("SSID:")[1].split(",")[0].strip()
-                        if ssid_part and ssid_part not in ["N/A", "unknown"]:
-                            ssid = ssid_part
-                    elif "->" in line:
-                        ssid_part = line.split("->")[1].split("(")[0].strip()
-                        if ssid_part and ssid_part not in ["N/A", "unknown"]:
-                            ssid = ssid_part
-                    elif "looking for" in line:
-                        ssid_part = line.split("looking for")[1].strip()
-                        if ssid_part and ssid_part not in ["N/A", "unknown"]:
-                            ssid = ssid_part
-                    
-                    # Parse RSSI (look for numbers with minus sign or "dBm")
-                    rssi_pattern = r'(-?\d+)\s*dBm?'
-                    rssi_match = re.search(rssi_pattern, line, re.IGNORECASE)
-                    if rssi_match:
-                        rssi = rssi_match.group(1) + "dBm"
-                    
-                    # Parse timestamp if present
-                    time_pattern = r'\[(\d+:\d+:\d+)\]'
-                    time_match = re.search(time_pattern, line)
-                    if time_match:
-                        timestamp = time_match.group(1)
-                    
-                    # Truncate SSID if too long
-                    if len(ssid) > 30:
-                        ssid = ssid[:27] + "..."
-                    
-                    # Color code RSSI
-                    if rssi != "N/A" and "dBm" in rssi:
-                        try:
-                            rssi_val = int(rssi.replace("dBm", "").strip())
-                            if rssi_val >= -50:
-                                rssi_color = Colors.GREEN
-                            elif rssi_val >= -70:
-                                rssi_color = Colors.YELLOW
-                            else:
-                                rssi_color = Colors.RED
-                        except:
-                            rssi_color = Colors.GRAY
-                    else:
-                        rssi_color = Colors.GRAY
-                    
-                    print(f"{Colors.CYAN}║{Colors.NC}  {Colors.GREEN}{probe_count:<2}{Colors.NC} {Colors.GRAY}{client_mac:<17}{Colors.NC} {ssid:<30} {rssi_color}{rssi:<6}{Colors.NC} {timestamp:<8}  {Colors.CYAN}║{Colors.NC}")
-            
-            print(f"{Colors.CYAN}╚══════════════════════════════════════════════════════════════════════════════╝{Colors.NC}")
-            print()
-            print(f"{Colors.GREEN}[+] Found {probe_count} probe requests{Colors.NC}")
-            
-            # Show summary
-            if probe_count > 0:
-                print(f"{Colors.CYAN}[*] Probe request summary:{Colors.NC}")
-                print(f"{Colors.CYAN}    - Shows devices searching for WiFi networks{Colors.NC}")
-                print(f"{Colors.CYAN}    - Useful for discovering hidden networks and client behavior{Colors.NC}")
+        if probe_lines:
+            print(f"{Colors.CYAN}Output:{Colors.NC}")
+            for idx, line in enumerate(probe_lines, start=1):
+                print(f"{Colors.GREEN}{idx:>2}.{Colors.NC} {line}")
         else:
             print(f"{Colors.YELLOW}[!] No probe requests received from device{Colors.NC}")
             print(f"{Colors.YELLOW}[*] Try starting the sniffer first to capture probe requests{Colors.NC}")
@@ -1425,29 +1583,25 @@ class JanOS:
                        self.sniffer_running, self.sae_overflow_running,
                        self.handshake_running, self.portal_running,
                        self.evil_twin_running)
-        print()
-        print(f"{Colors.BLUE}╔══════════════════════════════════════════════════════════════════════════════╗{Colors.NC}")
-        print(f"{Colors.BLUE}║{Colors.NC}                    {Colors.WHITE}{Colors.BOLD}📄  SELECT HTML FILE  📄{Colors.NC}                                 {Colors.BLUE}║{Colors.NC}")
-        print(f"{Colors.BLUE}╠══════════════════════════════════════════════════════════════════════════════╣{Colors.NC}")
-        print(f"{Colors.BLUE}║{Colors.NC}                                                                              {Colors.BLUE}║{Colors.NC}")
-        
+        terminal_width = get_terminal_width()
+        table_width = max(40, min(terminal_width - 4, 110))
+        lines = [
+            f"{Colors.YELLOW}Available HTML files:{Colors.NC}",
+            ""
+        ]
+
         # Show available files
-        print(f"{Colors.BLUE}║{Colors.NC}  {Colors.YELLOW}Available HTML files:{Colors.NC}                                                        {Colors.BLUE}║{Colors.NC}")
-        print(f"{Colors.BLUE}║{Colors.NC}                                                                              {Colors.BLUE}║{Colors.NC}")
-        
         for i, file_info in enumerate(self.portal_html_files, 1):
             if i <= 15:  # Show first 15 files
                 display_text = file_info['display']
                 if len(display_text) > 60:
                     display_text = display_text[:57] + "..."
-                print(f"{Colors.BLUE}║{Colors.NC}  {Colors.GREEN}{file_info['number']:>2}){Colors.NC} {display_text:<58}  {Colors.BLUE}║{Colors.NC}")
+                lines.append(f"{Colors.GREEN}{file_info['number']:>2}){Colors.NC} {display_text}")
         
         if len(self.portal_html_files) > 15:
-            print(f"{Colors.BLUE}║{Colors.NC}  {Colors.GRAY}... and {len(self.portal_html_files) - 15} more files{Colors.NC}                                         {Colors.BLUE}║{Colors.NC}")
-        
-        print(f"{Colors.BLUE}║{Colors.NC}                                                                              {Colors.BLUE}║{Colors.NC}")
-        print(f"{Colors.BLUE}╚══════════════════════════════════════════════════════════════════════════════╝{Colors.NC}")
-        print()
+            lines.append(f"{Colors.GRAY}... and {len(self.portal_html_files) - 15} more files{Colors.NC}")
+
+        UI.print_compact_box("SELECT HTML FILE", lines, Colors.BLUE, width=table_width)
         
         try:
             selection = input("Enter file number to select (0 to cancel): ").strip()
@@ -1500,18 +1654,16 @@ class JanOS:
                        self.sniffer_running, self.sae_overflow_running,
                        self.handshake_running, self.portal_running,
                        self.evil_twin_running)
-        print()
-        print(f"{Colors.MAGENTA}╔══════════════════════════════════════════════════════════════════════════════╗{Colors.NC}")
-        print(f"{Colors.MAGENTA}║{Colors.NC}                  {Colors.WHITE}{Colors.BOLD}👥  SELECT TARGET NETWORK  👥{Colors.NC}                              {Colors.MAGENTA}║{Colors.NC}")
-        print(f"{Colors.MAGENTA}╠══════════════════════════════════════════════════════════════════════════════╣{Colors.NC}")
-        print(f"{Colors.MAGENTA}║{Colors.NC}                                                                              {Colors.MAGENTA}║{Colors.NC}")
-        print(f"{Colors.MAGENTA}║{Colors.NC}  {Colors.YELLOW}Select a target network for Evil Twin attack:{Colors.NC}                                    {Colors.MAGENTA}║{Colors.NC}")
-        print(f"{Colors.MAGENTA}║{Colors.NC}                                                                              {Colors.MAGENTA}║{Colors.NC}")
-        
+        terminal_width = get_terminal_width()
+        table_width = max(40, min(terminal_width - 4, 110))
+        lines = [
+            f"{Colors.YELLOW}Select a target network for Evil Twin attack:{Colors.NC}",
+            "",
+            f"{Colors.WHITE}#   SSID                      CH  RSSI   Auth{Colors.NC}",
+            ""
+        ]
+
         # Display networks
-        print(f"{Colors.MAGENTA}║{Colors.NC}  {Colors.WHITE}#{Colors.NC}   {Colors.WHITE}SSID{Colors.NC}                        {Colors.WHITE}CH{Colors.NC}  {Colors.WHITE}RSSI{Colors.NC}  {Colors.WHITE}Auth{Colors.NC}                    {Colors.MAGENTA}║{Colors.NC}")
-        print(f"{Colors.MAGENTA}╠══════════════════════════════════════════════════════════════════════════════╣{Colors.NC}")
-        
         for network in self.network_mgr.networks:
             idx = network.get('index', '?')
             ssid = network.get('ssid', '?')
@@ -1528,11 +1680,9 @@ class JanOS:
                 auth = auth[:10] + ".."
             
             rssi_color = self.network_mgr.get_rssi_color(rssi)
-            
-            print(f"{Colors.MAGENTA}║{Colors.NC}  {Colors.GREEN}{idx:<3}{Colors.NC} {ssid:<26} {channel:<3} {rssi_color}{rssi:<5}{Colors.NC} {auth:<12}              {Colors.MAGENTA}║{Colors.NC}")
-        
-        print(f"{Colors.MAGENTA}╚══════════════════════════════════════════════════════════════════════════════╝{Colors.NC}")
-        print()
+            lines.append(f"{Colors.GREEN}{idx:<3}{Colors.NC} {ssid:<25} {channel:<3} {rssi_color}{rssi:<6}{Colors.NC} {auth:<12}")
+
+        UI.print_compact_box("SELECT TARGET NETWORK", lines, Colors.MAGENTA, width=table_width)
         
         try:
             selection = input("Enter network number to target (0 to cancel): ").strip()
@@ -1571,17 +1721,15 @@ class JanOS:
                        self.sniffer_running, self.sae_overflow_running,
                        self.handshake_running, self.portal_running,
                        self.evil_twin_running)
-        print()
-        print(f"{Colors.MAGENTA}╔══════════════════════════════════════════════════════════════════════════════╗{Colors.NC}")
-        print(f"{Colors.MAGENTA}║{Colors.NC}                {Colors.WHITE}{Colors.BOLD}⚠  SELECT SAE TARGET NETWORK  ⚠{Colors.NC}                           {Colors.MAGENTA}║{Colors.NC}")
-        print(f"{Colors.MAGENTA}╠══════════════════════════════════════════════════════════════════════════════╣{Colors.NC}")
-        print(f"{Colors.MAGENTA}║{Colors.NC}                                                                              {Colors.MAGENTA}║{Colors.NC}")
-        print(f"{Colors.MAGENTA}║{Colors.NC}  {Colors.YELLOW}Select ONE target network for SAE Overflow attack:{Colors.NC}                               {Colors.MAGENTA}║{Colors.NC}")
-        print(f"{Colors.MAGENTA}║{Colors.NC}                                                                              {Colors.MAGENTA}║{Colors.NC}")
-        
-        print(f"{Colors.MAGENTA}║{Colors.NC}  {Colors.WHITE}#{Colors.NC}   {Colors.WHITE}SSID{Colors.NC}                        {Colors.WHITE}CH{Colors.NC}  {Colors.WHITE}RSSI{Colors.NC}  {Colors.WHITE}Auth{Colors.NC}                    {Colors.MAGENTA}║{Colors.NC}")
-        print(f"{Colors.MAGENTA}╠══════════════════════════════════════════════════════════════════════════════╣{Colors.NC}")
-        
+        terminal_width = get_terminal_width()
+        table_width = max(40, min(terminal_width - 4, 110))
+        lines = [
+            f"{Colors.YELLOW}Select ONE target network for SAE Overflow attack:{Colors.NC}",
+            "",
+            f"{Colors.WHITE}#   SSID                      CH  RSSI   Auth{Colors.NC}",
+            ""
+        ]
+
         for network in self.network_mgr.networks:
             idx = network.get('index', '?')
             ssid = network.get('ssid', '?')
@@ -1595,10 +1743,9 @@ class JanOS:
                 auth = auth[:10] + ".."
             
             rssi_color = self.network_mgr.get_rssi_color(rssi)
-            print(f"{Colors.MAGENTA}║{Colors.NC}  {Colors.GREEN}{idx:<3}{Colors.NC} {ssid:<26} {channel:<3} {rssi_color}{rssi:<5}{Colors.NC} {auth:<12}              {Colors.MAGENTA}║{Colors.NC}")
-        
-        print(f"{Colors.MAGENTA}╚══════════════════════════════════════════════════════════════════════════════╝{Colors.NC}")
-        print()
+            lines.append(f"{Colors.GREEN}{idx:<3}{Colors.NC} {ssid:<25} {channel:<3} {rssi_color}{rssi:<6}{Colors.NC} {auth:<12}")
+
+        UI.print_compact_box("SELECT SAE TARGET", lines, Colors.MAGENTA, width=table_width)
         
         try:
             selection = input("Enter ONE network number for SAE Overflow (0 to cancel): ").strip()
@@ -1911,12 +2058,41 @@ class JanOS:
         
         target_ssid = target_network.get('ssid', 'Unknown')
         target_channel = target_network.get('channel', '1')
+        target_index = target_network.get('index', '')
         
         print(f"{Colors.GREEN}[+] Target network selected: {target_ssid} (Channel: {target_channel}){Colors.NC}")
         print()
         
+        # Ensure device has fresh scan data and selected target
+        print(f"{Colors.MAGENTA}[*] Step 2: Sync target selection to device...{Colors.NC}")
+        print(f"{Colors.MAGENTA}[*] Sending: scan_networks{Colors.NC}")
+        self.serial_mgr.send_command("scan_networks")
+        scan_complete = False
+        start_time = time.time()
+        while time.time() - start_time < SCAN_TIMEOUT:
+            lines = self.serial_mgr.read_response(timeout=1)
+            for line in lines:
+                if "Scan results printed" in line:
+                    scan_complete = True
+                    break
+            if scan_complete:
+                break
+        if not scan_complete:
+            print(f"{Colors.YELLOW}[!] Scan may not have completed (continuing)...{Colors.NC}")
+        
+        if target_index:
+            print(f"{Colors.MAGENTA}[*] Sending: select_networks {target_index}{Colors.NC}")
+            self.serial_mgr.send_command(f"select_networks {target_index}")
+            time.sleep(1)
+            lines = self.serial_mgr.read_response(timeout=2)
+            for line in lines:
+                if "selected" in line.lower():
+                    print(f"{Colors.GREEN}[+] {line}{Colors.NC}")
+        else:
+            print(f"{Colors.YELLOW}[!] No target index available for select_networks{Colors.NC}")
+        
         # Step 2: Get HTML files from SD card
-        print(f"{Colors.MAGENTA}[*] Step 2: Loading HTML files from SD card...{Colors.NC}")
+        print(f"{Colors.MAGENTA}[*] Step 3: Loading HTML files from SD card...{Colors.NC}")
         if not self.get_html_files_from_sd():
             print(f"{Colors.YELLOW}[!] Cannot proceed without HTML files{Colors.NC}")
             print()
@@ -1924,7 +2100,7 @@ class JanOS:
             return
         
         # Step 3: Select HTML file
-        print(f"{Colors.MAGENTA}[*] Step 3: Select HTML file for Evil Twin portal{Colors.NC}")
+        print(f"{Colors.MAGENTA}[*] Step 4: Select HTML file for Evil Twin portal{Colors.NC}")
         if not self.select_html_file_menu():
             print(f"{Colors.YELLOW}[!] No HTML file selected{Colors.NC}")
             print()
@@ -1933,7 +2109,7 @@ class JanOS:
         
         # Step 4: Confirm and start Evil Twin
         print()
-        print(f"{Colors.MAGENTA}[*] Step 4: Starting Evil Twin attack...{Colors.NC}")
+        print(f"{Colors.MAGENTA}[*] Step 5: Starting Evil Twin attack...{Colors.NC}")
         print(f"{Colors.MAGENTA}[*] Target SSID: {target_ssid}{Colors.NC}")
         print(f"{Colors.MAGENTA}[*] Target Channel: {target_channel}{Colors.NC}")
         print(f"{Colors.MAGENTA}[*] HTML file: {self.selected_html_name}{Colors.NC}")
@@ -2195,6 +2371,347 @@ class JanOS:
         
         print()
         input("Press Enter to continue...")
+
+    def start_beacon_spam_attack(self) -> None:
+        """Start beacon spam attack."""
+        clear_screen()
+        UI.print_banner(self.device, self.attack_running, self.blackout_running,
+                       self.sniffer_running, self.sae_overflow_running,
+                       self.handshake_running, self.portal_running,
+                       self.evil_twin_running)
+        UI.print_compact_box(
+            "BEACON SPAM",
+            [
+                f"{Colors.YELLOW}Enter SSIDs separated by comma{Colors.NC}",
+                f"{Colors.GRAY}Example: FreeWiFi, Airport, Coffee{Colors.NC}",
+                f"{Colors.GRAY}Max recommended: 12 SSIDs{Colors.NC}",
+            ],
+            Colors.CYAN
+        )
+
+        try:
+            raw = input("SSIDs: ").strip()
+        except EOFError:
+            return
+
+        if not raw:
+            print(f"{Colors.YELLOW}[!] Beacon spam cancelled{Colors.NC}")
+            time.sleep(1)
+            return
+
+        ssids = [s.strip() for s in raw.split(",") if s.strip()]
+        if not ssids:
+            print(f"{Colors.RED}[!] No valid SSIDs provided{Colors.NC}")
+            time.sleep(1)
+            return
+
+        if len(ssids) > 20:
+            print(f"{Colors.YELLOW}[!] Too many SSIDs, using first 20{Colors.NC}")
+            ssids = ssids[:20]
+
+        quoted_ssids = " ".join(f"\"{ssid.replace('\"', '')}\"" for ssid in ssids)
+        command = f"start_beacon_spam {quoted_ssids}"
+
+        print(f"{Colors.YELLOW}[*] Sending beacon spam command...{Colors.NC}")
+        self.serial_mgr.send_command(command)
+        self.beacon_spam_running = True
+        time.sleep(0.8)
+
+        lines = self.serial_mgr.read_until_silence(max_wait=3, idle_timeout=0.7)
+        for line in lines:
+            print(f"{Colors.CYAN}{line}{Colors.NC}")
+
+        print(f"{Colors.GREEN}[+] Beacon spam started with {len(ssids)} SSID(s){Colors.NC}")
+        print(f"{Colors.WHITE}Press Enter to return (attack continues).{Colors.NC}")
+        input()
+
+    def run_gps_module_command(self, command: str) -> None:
+        """Send GPS module command and print response."""
+        print(f"{Colors.YELLOW}[*] Sending: {command}{Colors.NC}")
+        self.serial_mgr.send_command(command)
+        time.sleep(0.5)
+        lines = self.serial_mgr.read_until_silence(max_wait=5, idle_timeout=1.0)
+        if not lines:
+            print(f"{Colors.GRAY}[-] No response{Colors.NC}")
+        else:
+            for line in lines:
+                print(line)
+        print()
+        input("Press Enter to continue...")
+
+    def start_gps_raw_monitor(self) -> None:
+        """Start raw GPS monitor until Enter is pressed."""
+        clear_screen()
+        UI.print_banner(self.device, self.attack_running, self.blackout_running,
+                       self.sniffer_running, self.sae_overflow_running,
+                       self.handshake_running, self.portal_running,
+                       self.evil_twin_running)
+        UI.print_compact_box(
+            "GPS RAW",
+            [
+                f"{Colors.YELLOW}Reading raw NMEA output...{Colors.NC}",
+                f"{Colors.GRAY}Press Enter to stop{Colors.NC}",
+            ],
+            Colors.CYAN
+        )
+
+        self.stop_wardrive_event.clear()
+
+        def gps_callback(line: str) -> None:
+            if line and not line.startswith(">"):
+                print(f"\n{Colors.GRAY}{line}{Colors.NC}")
+
+        self.serial_mgr.send_command("start_gps_raw")
+        gps_thread = threading.Thread(
+            target=self.serial_mgr.read_sniffer_data,
+            args=(gps_callback, self.stop_wardrive_event),
+            daemon=True
+        )
+        gps_thread.start()
+
+        try:
+            self.wait_for_enter_with_status(
+                lambda: f"{Colors.CYAN}Monitoring GPS raw stream...{Colors.NC}",
+                poll_interval=0.5
+            )
+        except KeyboardInterrupt:
+            pass
+        finally:
+            print(f"{Colors.YELLOW}[*] Stopping GPS raw monitor...{Colors.NC}")
+            self.serial_mgr.send_command("stop")
+            self.stop_wardrive_event.set()
+            gps_thread.join(timeout=2)
+            input("Press Enter to continue...")
+
+    def gps_setup_menu(self) -> None:
+        """GPS setup submenu for wardrive."""
+        while True:
+            clear_screen()
+            UI.print_banner(self.device, self.attack_running, self.blackout_running,
+                           self.sniffer_running, self.sae_overflow_running,
+                           self.handshake_running, self.portal_running,
+                           self.evil_twin_running)
+            UI.print_gps_setup_menu()
+
+            choice = input("Select option: ").strip()
+            if choice == '1':
+                self.run_gps_module_command("gps_set")
+            elif choice == '2':
+                self.run_gps_module_command("gps_set m5")
+            elif choice == '3':
+                self.run_gps_module_command("gps_set atgm")
+            elif choice == '4':
+                self.run_gps_module_command("gps_set tab5")
+            elif choice == '5':
+                self.run_gps_module_command("gps_set cap")
+            elif choice == '6':
+                self.start_gps_raw_monitor()
+            elif choice == '0':
+                return
+            else:
+                print(f"{Colors.RED}Invalid option{Colors.NC}")
+                time.sleep(1)
+
+    def start_wardrive(self) -> None:
+        """Start wardrive and monitor until Enter is pressed."""
+        clear_screen()
+        UI.print_banner(self.device, self.attack_running, self.blackout_running,
+                       self.sniffer_running, self.sae_overflow_running,
+                       self.handshake_running, self.portal_running,
+                       self.evil_twin_running)
+        UI.print_compact_box(
+            "WARDRIVE",
+            [
+                f"{Colors.YELLOW}Starting wardrive...{Colors.NC}",
+                f"{Colors.GRAY}Wait for GPS fix and logging messages{Colors.NC}",
+                f"{Colors.GRAY}Press Enter to stop{Colors.NC}",
+            ],
+            Colors.CYAN
+        )
+
+        self.wardrive_logged_networks = 0
+        self.wardrive_last_file = ""
+        self.wardrive_running = True
+        self.stop_wardrive_event.clear()
+
+        self.serial_mgr.send_command("start_wardrive")
+        self.wardrive_thread = threading.Thread(
+            target=self.serial_mgr.read_sniffer_data,
+            args=(self.update_wardrive_display, self.stop_wardrive_event),
+            daemon=True
+        )
+        self.wardrive_thread.start()
+
+        start_time = time.time()
+        try:
+            self.wait_for_enter_with_status(
+                lambda: (
+                    f"{Colors.CYAN}Wardrive time: {int(time.time() - start_time)}s"
+                    f" | Logged: {self.wardrive_logged_networks} networks{Colors.NC}"
+                ),
+                poll_interval=1.0
+            )
+        except KeyboardInterrupt:
+            pass
+        finally:
+            print(f"{Colors.YELLOW}[*] Stopping wardrive...{Colors.NC}")
+            self.serial_mgr.send_command("stop")
+            self.wardrive_running = False
+            self.stop_wardrive_event.set()
+            if self.wardrive_thread:
+                self.wardrive_thread.join(timeout=2)
+            if self.wardrive_last_file:
+                print(f"{Colors.GREEN}[+] Last log file: {self.wardrive_last_file}{Colors.NC}")
+            input("Press Enter to continue...")
+
+    def wardrive_menu(self) -> None:
+        """Wardrive submenu."""
+        while True:
+            try:
+                clear_screen()
+                UI.print_banner(self.device, self.attack_running, self.blackout_running,
+                               self.sniffer_running, self.sae_overflow_running,
+                               self.handshake_running, self.portal_running,
+                               self.evil_twin_running)
+                UI.print_wardrive_menu()
+                if self.wardrive_running:
+                    print(f"{Colors.CYAN}[!] Wardrive is RUNNING{Colors.NC}")
+                choice = input("Select option: ").strip()
+                if choice == '1':
+                    self.start_wardrive()
+                elif choice == '2':
+                    self.gps_setup_menu()
+                elif choice == '0':
+                    return
+                else:
+                    print(f"{Colors.RED}Invalid option{Colors.NC}")
+                    time.sleep(1)
+            except (KeyboardInterrupt, EOFError):
+                print(f"\n{Colors.YELLOW}[*] Returning to main menu{Colors.NC}")
+                time.sleep(1)
+                return
+
+    def list_dir_entries(self, command: str, title: str, base_path: str) -> None:
+        """List SD entries for a path and optionally delete one."""
+        clear_screen()
+        UI.print_banner(self.device, self.attack_running, self.blackout_running,
+                       self.sniffer_running, self.sae_overflow_running,
+                       self.handshake_running, self.portal_running,
+                       self.evil_twin_running)
+        print(f"{Colors.YELLOW}[*] Sending: {command}{Colors.NC}")
+        self.serial_mgr.send_command(command)
+        time.sleep(0.5)
+        lines = self.serial_mgr.read_until_silence(max_wait=6, idle_timeout=1.0)
+
+        files: List[str] = []
+        list_lines: List[str] = []
+        for line in lines:
+            if not line or line.startswith(">"):
+                continue
+            m = re.match(r'^\s*(\d+)\s+(.+)$', line)
+            if m and not m.group(2).lower().startswith("file(s)"):
+                files.append(m.group(2).strip())
+                list_lines.append(f"{Colors.GREEN}{m.group(1):>2}){Colors.NC} {m.group(2).strip()}")
+            elif not line.lower().startswith("found ") and not line.lower().startswith("files in "):
+                list_lines.append(line)
+
+        if not list_lines:
+            list_lines = [f"{Colors.YELLOW}No entries found{Colors.NC}"]
+
+        UI.print_compact_box(title, list_lines, Colors.CYAN, width=max(40, min(get_terminal_width() - 4, 110)))
+        if not files:
+            input("Press Enter to continue...")
+            return
+
+        print(f"{Colors.GRAY}Type file number to delete or press Enter to go back.{Colors.NC}")
+        choice = input("Delete #: ").strip()
+        if not choice:
+            return
+        if not choice.isdigit():
+            print(f"{Colors.RED}[!] Invalid number{Colors.NC}")
+            time.sleep(1)
+            return
+        idx = int(choice) - 1
+        if idx < 0 or idx >= len(files):
+            print(f"{Colors.RED}[!] Number out of range{Colors.NC}")
+            time.sleep(1)
+            return
+
+        target_path = f"{base_path.rstrip('/')}/{files[idx]}"
+        confirm = input(f"Delete {files[idx]}? [y/N]: ").strip().lower()
+        if confirm not in ['y', 'yes']:
+            print(f"{Colors.YELLOW}[!] Deletion cancelled{Colors.NC}")
+            time.sleep(1)
+            return
+
+        self.serial_mgr.send_command(f"file_delete {target_path}")
+        resp = self.serial_mgr.read_until_silence(max_wait=4, idle_timeout=0.8)
+        for line in resp:
+            print(line)
+        input("Press Enter to continue...")
+
+    def sd_data_show_pass_menu(self) -> None:
+        """Show compromised portal/evil credentials."""
+        clear_screen()
+        UI.print_banner(self.device, self.attack_running, self.blackout_running,
+                       self.sniffer_running, self.sae_overflow_running,
+                       self.handshake_running, self.portal_running,
+                       self.evil_twin_running)
+        UI.print_compact_box(
+            "EVIL TWIN & PORTAL",
+            [
+                f"{Colors.GREEN}1){Colors.NC} show_pass portal",
+                f"{Colors.GREEN}2){Colors.NC} show_pass evil",
+                f"{Colors.GRAY}0){Colors.NC} Back",
+            ],
+            Colors.CYAN
+        )
+        choice = input("Select option: ").strip()
+        if choice == '1':
+            self.serial_mgr.send_command("show_pass portal")
+        elif choice == '2':
+            self.serial_mgr.send_command("show_pass evil")
+        else:
+            return
+
+        lines = self.serial_mgr.read_until_silence(max_wait=6, idle_timeout=1.0)
+        print()
+        if not lines:
+            print(f"{Colors.YELLOW}[!] No data returned{Colors.NC}")
+        else:
+            for line in lines:
+                print(line)
+        print()
+        input("Press Enter to continue...")
+
+    def sd_data_menu(self) -> None:
+        """SD data submenu."""
+        while True:
+            try:
+                clear_screen()
+                UI.print_banner(self.device, self.attack_running, self.blackout_running,
+                               self.sniffer_running, self.sae_overflow_running,
+                               self.handshake_running, self.portal_running,
+                               self.evil_twin_running)
+                UI.print_sd_data_menu()
+                choice = input("Select option: ").strip()
+                if choice == '1':
+                    self.list_dir_entries("list_sd", "SD HTMLS", "lab/htmls")
+                elif choice == '2':
+                    self.sd_data_show_pass_menu()
+                elif choice == '3':
+                    self.list_dir_entries("list_dir /sdcard/lab/wardrives", "SD WARLOGS", "lab/wardrives")
+                elif choice == '4':
+                    self.list_dir_entries("list_dir /sdcard/lab/handshakes", "SD HANDSHAKES", "lab/handshakes")
+                elif choice == '0':
+                    return
+                else:
+                    print(f"{Colors.RED}Invalid option{Colors.NC}")
+                    time.sleep(1)
+            except (KeyboardInterrupt, EOFError):
+                print(f"\n{Colors.YELLOW}[*] Returning to main menu{Colors.NC}")
+                time.sleep(1)
+                return
     
     def stop_all_attacks(self) -> None:
         """Stop all running attacks."""
@@ -2205,7 +2722,7 @@ class JanOS:
                        self.evil_twin_running)
         print()
         
-        if not self.attack_running and not self.blackout_running and not self.sniffer_running and not self.sae_overflow_running and not self.handshake_running and not self.portal_running and not self.evil_twin_running:
+        if not self.attack_running and not self.blackout_running and not self.sniffer_running and not self.sae_overflow_running and not self.handshake_running and not self.portal_running and not self.evil_twin_running and not self.wardrive_running and not self.beacon_spam_running:
             print(f"{Colors.YELLOW}[!] No attacks are currently running{Colors.NC}")
             print()
             input("Press Enter to continue...")
@@ -2256,6 +2773,19 @@ class JanOS:
             self.stop_evil_twin_event.set()
             if self.evil_twin_thread:
                 self.evil_twin_thread.join(timeout=2)
+
+        if self.wardrive_running:
+            print(f"{Colors.YELLOW}    Stopping wardrive...{Colors.NC}")
+            self.serial_mgr.send_command("stop")
+            self.wardrive_running = False
+            self.stop_wardrive_event.set()
+            if self.wardrive_thread:
+                self.wardrive_thread.join(timeout=2)
+
+        if self.beacon_spam_running:
+            print(f"{Colors.YELLOW}    Stopping beacon spam...{Colors.NC}")
+            self.serial_mgr.send_command("stop")
+            self.beacon_spam_running = False
         
         print(f"{Colors.GREEN}[+] All attacks stopped{Colors.NC}")
         print()
@@ -2367,7 +2897,7 @@ class JanOS:
                 if choice == '1':
                     self.do_scan()
                 elif choice == '2':
-                    self.network_mgr.display_networks()
+                    self.show_scan_results()
                 elif choice == '3':
                     self.select_networks_menu()
                 elif choice == '0':
@@ -2431,7 +2961,8 @@ class JanOS:
                 UI.print_attacks_menu(self.network_mgr.selected_networks, 
                                      self.attack_running, self.blackout_running, 
                                      self.sae_overflow_running, self.handshake_running,
-                                     self.portal_running, self.evil_twin_running)
+                                     self.portal_running, self.evil_twin_running,
+                                     self.beacon_spam_running)
                 
                 choice = input("Select option: ").strip()
                 
@@ -2447,8 +2978,114 @@ class JanOS:
                     self.portal_menu()
                 elif choice == '6':
                     self.evil_twin_menu()
-                elif choice == '9':
+                elif choice == '7':
+                    self.start_beacon_spam_attack()
+                elif choice == '8':
                     self.stop_all_attacks()
+                elif choice == '0':
+                    return  # Back to main menu
+                else:
+                    print(f"{Colors.RED}Invalid option{Colors.NC}")
+                    time.sleep(1)
+                    
+            except KeyboardInterrupt:
+                print(f"\n{Colors.YELLOW}[*] Returning to main menu{Colors.NC}")
+                time.sleep(1)
+                break
+            except EOFError:
+                print(f"\n{Colors.YELLOW}[*] Returning to main menu{Colors.NC}")
+                time.sleep(1)
+                break
+
+    def system_reboot(self) -> None:
+        """Reboot the device."""
+        clear_screen()
+        UI.print_banner(self.device, self.attack_running, self.blackout_running, 
+                       self.sniffer_running, self.sae_overflow_running,
+                       self.handshake_running, self.portal_running,
+                       self.evil_twin_running)
+        print()
+        confirm = input("Reboot device now? [y/N]: ").strip().lower()
+        if confirm not in ['y', 'yes']:
+            print(f"{Colors.GRAY}[-] Reboot cancelled{Colors.NC}")
+            time.sleep(1)
+            return
+        
+        print(f"{Colors.YELLOW}[*] Rebooting device...{Colors.NC}")
+        self.serial_mgr.send_command("reboot")
+        time.sleep(1)
+        print(f"{Colors.GREEN}[+] Reboot command sent{Colors.NC}")
+        print()
+        input("Press Enter to continue...")
+    
+    def system_ping(self) -> None:
+        """Ping a host from the device."""
+        clear_screen()
+        UI.print_banner(self.device, self.attack_running, self.blackout_running, 
+                       self.sniffer_running, self.sae_overflow_running,
+                       self.handshake_running, self.portal_running,
+                       self.evil_twin_running)
+        print()
+        host = input("Host to ping (IP or domain): ").strip()
+        if not host:
+            print(f"{Colors.RED}[!] Host cannot be empty{Colors.NC}")
+            time.sleep(1)
+            return
+        
+        print(f"{Colors.YELLOW}[*] Sending ping to {host}...{Colors.NC}")
+        self.serial_mgr.send_command(f"ping {host}")
+        time.sleep(0.5)
+        
+        print(f"{Colors.CYAN}[*] Response:{Colors.NC}")
+        lines = self.serial_mgr.read_response(timeout=5)
+        if not lines:
+            print(f"{Colors.GRAY}[-] No response received{Colors.NC}")
+        else:
+            for line in lines:
+                print(line)
+        print()
+        input("Press Enter to continue...")
+    
+    def system_list_sd(self) -> None:
+        """List SD card contents."""
+        clear_screen()
+        UI.print_banner(self.device, self.attack_running, self.blackout_running, 
+                       self.sniffer_running, self.sae_overflow_running,
+                       self.handshake_running, self.portal_running,
+                       self.evil_twin_running)
+        print()
+        print(f"{Colors.YELLOW}[*] Listing SD card contents...{Colors.NC}")
+        self.serial_mgr.send_command("list_sd")
+        time.sleep(0.5)
+        
+        lines = self.serial_mgr.read_response(timeout=5)
+        if not lines:
+            print(f"{Colors.GRAY}[-] No response received{Colors.NC}")
+        else:
+            for line in lines:
+                print(line)
+        print()
+        input("Press Enter to continue...")
+    
+    def system_menu(self) -> None:
+        """System submenu."""
+        while True:
+            try:
+                clear_screen()
+                UI.print_banner(self.device, self.attack_running, self.blackout_running, 
+                              self.sniffer_running, self.sae_overflow_running,
+                              self.handshake_running, self.portal_running,
+                              self.evil_twin_running)
+                UI.print_system_menu()
+                
+                choice = input("Select option: ").strip()
+                
+                if choice == '1':
+                    self.system_reboot()
+                elif choice == '2':
+                    self.system_ping()
+                elif choice == '3':
+                    self.system_list_sd()
                 elif choice == '0':
                     return  # Back to main menu
                 else:
@@ -2504,7 +3141,13 @@ class JanOS:
                     if self.evil_twin_ssid:
                         print(f"{Colors.MAGENTA}[+] Target: {self.evil_twin_ssid}{Colors.NC}")
                     print(f"{Colors.MAGENTA}[+] Captured: {len(self.evil_twin_captured_data)}{Colors.NC}")
-                if not self.attack_running and not self.blackout_running and not self.sniffer_running and not self.sae_overflow_running and not self.handshake_running and not self.portal_running and not self.evil_twin_running:
+                if self.wardrive_running:
+                    print(f"{Colors.CYAN}[!] Wardrive is RUNNING{Colors.NC}")
+                    if self.wardrive_last_file:
+                        print(f"{Colors.CYAN}[+] Last log: {self.wardrive_last_file}{Colors.NC}")
+                if self.beacon_spam_running:
+                    print(f"{Colors.YELLOW}[!] Beacon spam is RUNNING{Colors.NC}")
+                if not self.attack_running and not self.blackout_running and not self.sniffer_running and not self.sae_overflow_running and not self.handshake_running and not self.portal_running and not self.evil_twin_running and not self.wardrive_running and not self.beacon_spam_running:
                     print(f"{Colors.GRAY}[-] No attacks running{Colors.NC}")
                 
                 print()
@@ -2517,11 +3160,17 @@ class JanOS:
                     self.sniffer_menu()
                 elif choice == '3':
                     self.attacks_menu()
+                elif choice == '4':
+                    self.wardrive_menu()
+                elif choice == '5':
+                    self.sd_data_menu()
+                elif choice == '6':
+                    self.system_menu()
                 elif choice in ['0', 'q', 'Q']:
-                    if self.attack_running or self.blackout_running or self.sniffer_running or self.sae_overflow_running or self.handshake_running or self.portal_running or self.evil_twin_running:
+                    if self.attack_running or self.blackout_running or self.sniffer_running or self.sae_overflow_running or self.handshake_running or self.portal_running or self.evil_twin_running or self.wardrive_running or self.beacon_spam_running:
                         print()
                         try:
-                            stop_confirm = input("Attacks/Sniffer/Portal are running. Stop before exit? [Y/n]: ").strip().lower()
+                            stop_confirm = input("Actions are running. Stop before exit? [Y/n]: ").strip().lower()
                         except EOFError:
                             stop_confirm = 'y'
                         
@@ -2539,6 +3188,10 @@ class JanOS:
                                 self.stop_evil_twin_event.set()
                                 if self.evil_twin_thread:
                                     self.evil_twin_thread.join(timeout=2)
+                            if self.wardrive_running:
+                                self.stop_wardrive_event.set()
+                                if self.wardrive_thread:
+                                    self.wardrive_thread.join(timeout=2)
                             print(f"{Colors.GREEN}[+] All activities stopped{Colors.NC}")
                             time.sleep(1)
                     return
@@ -2548,7 +3201,7 @@ class JanOS:
                     
             except KeyboardInterrupt:
                 print(f"\n{Colors.YELLOW}[*] Interrupted{Colors.NC}")
-                if self.attack_running or self.blackout_running or self.sniffer_running or self.sae_overflow_running or self.handshake_running or self.portal_running or self.evil_twin_running:
+                if self.attack_running or self.blackout_running or self.sniffer_running or self.sae_overflow_running or self.handshake_running or self.portal_running or self.evil_twin_running or self.wardrive_running or self.beacon_spam_running:
                     self.serial_mgr.send_command("stop")
                     if self.sniffer_running:
                         self.stop_sniffer_event.set()
@@ -2556,10 +3209,12 @@ class JanOS:
                         self.stop_portal_event.set()
                     if self.evil_twin_running:
                         self.stop_evil_twin_event.set()
+                    if self.wardrive_running:
+                        self.stop_wardrive_event.set()
                 break
             except EOFError:
                 print(f"\n{Colors.YELLOW}[*] Exiting{Colors.NC}")
-                if self.attack_running or self.blackout_running or self.sniffer_running or self.sae_overflow_running or self.handshake_running or self.portal_running or self.evil_twin_running:
+                if self.attack_running or self.blackout_running or self.sniffer_running or self.sae_overflow_running or self.handshake_running or self.portal_running or self.evil_twin_running or self.wardrive_running or self.beacon_spam_running:
                     self.serial_mgr.send_command("stop")
                     if self.sniffer_running:
                         self.stop_sniffer_event.set()
@@ -2567,6 +3222,8 @@ class JanOS:
                         self.stop_portal_event.set()
                     if self.evil_twin_running:
                         self.stop_evil_twin_event.set()
+                    if self.wardrive_running:
+                        self.stop_wardrive_event.set()
                 break
     
     def run(self) -> None:
@@ -2584,7 +3241,7 @@ class JanOS:
         """Cleanup resources."""
         print()
         print(f"{Colors.YELLOW}[*] Cleaning up...{Colors.NC}")
-        if self.attack_running or self.blackout_running or self.sniffer_running or self.sae_overflow_running or self.handshake_running or self.portal_running or self.evil_twin_running:
+        if self.attack_running or self.blackout_running or self.sniffer_running or self.sae_overflow_running or self.handshake_running or self.portal_running or self.evil_twin_running or self.wardrive_running or self.beacon_spam_running:
             self.serial_mgr.send_command("stop")
             if self.sniffer_running:
                 self.stop_sniffer_event.set()
@@ -2598,6 +3255,10 @@ class JanOS:
                 self.stop_evil_twin_event.set()
                 if self.evil_twin_thread:
                     self.evil_twin_thread.join(timeout=2)
+            if self.wardrive_running:
+                self.stop_wardrive_event.set()
+                if self.wardrive_thread:
+                    self.wardrive_thread.join(timeout=2)
         self.serial_mgr.close()
         print(f"{Colors.GREEN}Goodbye!{Colors.NC}")
 
@@ -2605,13 +3266,15 @@ class JanOS:
 # Main Entry Point
 # ============================================================================
 def main():
-    # Check for device argument
-    if len(sys.argv) < 2:
-        app = JanOS("")
-        app.show_usage()
-        sys.exit(1)
+    device = None
+    if len(sys.argv) > 1:
+        if sys.argv[1] in ['-h', '--help']:
+            print_usage()
+            sys.exit(0)
+        device = sys.argv[1]
     
-    device = sys.argv[1]
+    if not device:
+        device = select_device_interactive()
     
     # Create and run application
     app = JanOS(device)
@@ -2620,7 +3283,7 @@ def main():
     import signal
     def signal_handler(sig, frame):
         print(f"\n{Colors.YELLOW}[*] Received interrupt signal{Colors.NC}")
-        if app.attack_running or app.blackout_running or app.sniffer_running or app.sae_overflow_running or app.handshake_running or app.portal_running or app.evil_twin_running:
+        if app.attack_running or app.blackout_running or app.sniffer_running or app.sae_overflow_running or app.handshake_running or app.portal_running or app.evil_twin_running or app.wardrive_running or app.beacon_spam_running:
             app.serial_mgr.send_command("stop")
             if app.sniffer_running:
                 app.stop_sniffer_event.set()
@@ -2628,6 +3291,8 @@ def main():
                 app.stop_portal_event.set()
             if app.evil_twin_running:
                 app.stop_evil_twin_event.set()
+            if app.wardrive_running:
+                app.stop_wardrive_event.set()
         app.serial_mgr.close()
         sys.exit(0)
     
