@@ -260,7 +260,6 @@ class UI:
             f"{Colors.GREEN}3){Colors.NC} Attacks",
             f"{Colors.GREEN}4){Colors.NC} Wardrive",
             f"{Colors.GREEN}5){Colors.NC} SD data",
-            f"{Colors.GREEN}6){Colors.NC} System",
             "",
             f"{Colors.GRAY}0){Colors.NC} Exit",
         ]
@@ -436,6 +435,18 @@ class UI:
         UI.print_compact_box("SD DATA", lines, Colors.CYAN)
 
     @staticmethod
+    def print_beacon_spam_menu() -> None:
+        """Print beacon spam submenu."""
+        lines = [
+            "",
+            f"{Colors.GREEN}1){Colors.NC} Start",
+            f"{Colors.GREEN}2){Colors.NC} SSID list",
+            "",
+            f"{Colors.GRAY}0){Colors.NC} Back to attacks",
+        ]
+        UI.print_compact_box("BEACON SPAM", lines, Colors.CYAN)
+
+    @staticmethod
     def print_compact_box(title: str, lines: List[str], color: str = Colors.CYAN,
                           width: int = COMPACT_BOX_WIDTH) -> None:
         """Print a compact fixed-width box with centered title."""
@@ -583,6 +594,15 @@ class SerialManager:
             time.sleep(0.1)
         except Exception as e:
             print(f"{Colors.RED}Error sending command: {e}{Colors.NC}")
+
+    def clear_input(self) -> None:
+        """Drop stale UART input so next read belongs to next command."""
+        if not self.serial_conn:
+            return
+        try:
+            self.serial_conn.reset_input_buffer()
+        except Exception:
+            pass
     
     def read_response(self, timeout: float = SCAN_TIMEOUT) -> List[str]:
         """Read response from ESP32 with timeout."""
@@ -841,6 +861,12 @@ class JanOS:
         self.evil_twin_client_count = 0
         self.wardrive_logged_networks = 0
         self.wardrive_last_file = ""
+        self.wardrive_last_lat = ""
+        self.wardrive_last_lon = ""
+        self.wardrive_last_alt = ""
+        self.wardrive_last_acc = ""
+        self.wardrive_waiting_for_fix = False
+        self.last_wardrive_line = ""
         self.os_type = detect_os()
         self.last_sniffer_line = ""
         
@@ -957,16 +983,41 @@ class JanOS:
         """Update wardrive status from UART output."""
         if not data:
             return
+        data = data.strip()
+        if not data or data == self.last_wardrive_line:
+            return
+        self.last_wardrive_line = data
 
+        # Parse and cache GPS fields from any line that contains them.
+        lat_match = re.search(r'Lat=([-+]?\d+(?:\.\d+)?)', data)
+        lon_match = re.search(r'Lon=([-+]?\d+(?:\.\d+)?)', data)
+        alt_match = re.search(r'Alt=([-+]?\d+(?:\.\d+)?m?)', data)
+        acc_match = re.search(r'Acc=([-+]?\d+(?:\.\d+)?m?)', data)
+        if lat_match and lon_match:
+            self.wardrive_last_lat = lat_match.group(1)
+            self.wardrive_last_lon = lon_match.group(1)
+            if alt_match:
+                self.wardrive_last_alt = alt_match.group(1)
+            if acc_match:
+                self.wardrive_last_acc = acc_match.group(1)
+
+        # Keep repetitive "waiting for GPS fix" messages to one line.
         if "Waiting for GPS fix" in data:
-            print(f"\n{Colors.YELLOW}[*] {data}{Colors.NC}")
+            if not self.wardrive_waiting_for_fix:
+                self.wardrive_waiting_for_fix = True
+                print(f"\n{Colors.YELLOW}[*] Waiting for GPS fix...{Colors.NC}")
             return
+
         if "GPS fix obtained" in data or "GPS fix recovered" in data:
-            print(f"\n{Colors.GREEN}[+] {data}{Colors.NC}")
+            self.wardrive_waiting_for_fix = False
+            print(f"\n{Colors.GREEN}{Colors.BOLD}[+] {data}{Colors.NC}")
             return
+
         if "GPS fix lost" in data:
-            print(f"\n{Colors.RED}[!] {data}{Colors.NC}")
+            self.wardrive_waiting_for_fix = True
+            print(f"\n{Colors.RED}{Colors.BOLD}[!] {data}{Colors.NC}")
             return
+
         if "Logged" in data and "/sdcard/lab/wardrives/" in data:
             logged_match = re.search(r'Logged\s+(\d+)\s+networks', data, re.IGNORECASE)
             if logged_match:
@@ -974,15 +1025,24 @@ class JanOS:
             file_match = re.search(r'(/sdcard/lab/wardrives/\S+)', data)
             if file_match:
                 self.wardrive_last_file = file_match.group(1)
-            print(f"\n{Colors.CYAN}[+] {data}{Colors.NC}")
+            print(f"\n{Colors.CYAN}{Colors.BOLD}[+] {data}{Colors.NC}")
             return
 
-        # Keep very verbose CSV lines out of the terminal.
+        lower = data.lower()
+
+        # Keep very verbose CSV/network lines out of the terminal.
         if "," in data and data.count(",") >= 8:
             return
 
-        if any(x in data.lower() for x in ("wardrive", "gps", "error", "failed")):
-            print(f"\n{Colors.GRAY}{data}{Colors.NC}")
+        # Suppress noisy informational traces that are visible in the status line.
+        if lower.startswith("wardrive started") or lower.startswith("wardrive:"):
+            return
+        if lower.startswith("gps:"):
+            return
+
+        # Always surface actual problems.
+        if "error" in lower or "failed" in lower:
+            print(f"\n{Colors.RED}{Colors.BOLD}[!] {data}{Colors.NC}")
 
     def wait_for_enter_with_status(self, status_builder, poll_interval: float = 1.0) -> None:
         """Show status line in loop until user presses Enter."""
@@ -2379,8 +2439,45 @@ class JanOS:
         print()
         input("Press Enter to continue...")
 
+    def _extract_numbered_entries(self, lines: List[str]) -> List[str]:
+        """Extract numbered entries in form: '1 value' or '1) value'."""
+        entries: List[str] = []
+        for line in lines:
+            if not line or line.startswith(">"):
+                continue
+            match = re.match(r'^\s*(\d+)[\)\.]?\s+(.+)$', line)
+            if not match:
+                continue
+            value = match.group(2).strip()
+            if value:
+                entries.append(value)
+        return entries
+
+    def _run_ssid_list_command(self) -> Tuple[List[str], List[str]]:
+        """Return SSID list from /sdcard/lab/ssids.txt and raw lines."""
+        self.serial_mgr.clear_input()
+        self.serial_mgr.send_command("list_ssids")
+        time.sleep(0.4)
+        lines = self.serial_mgr.read_until_silence(max_wait=4, idle_timeout=0.8)
+
+        lower_text = "\n".join(line.lower() for line in lines)
+        unknown_markers = (
+            "unknown command",
+            "command not found",
+            "not recognized",
+            "invalid command",
+        )
+        # Fallback for older firmware where only list_ssid exists.
+        if any(marker in lower_text for marker in unknown_markers):
+            self.serial_mgr.clear_input()
+            self.serial_mgr.send_command("list_ssid")
+            time.sleep(0.4)
+            lines = self.serial_mgr.read_until_silence(max_wait=4, idle_timeout=0.8)
+
+        return self._extract_numbered_entries(lines), lines
+
     def start_beacon_spam_attack(self) -> None:
-        """Start beacon spam attack."""
+        """Start beacon spam using SSIDs from /sdcard/lab/ssids.txt."""
         clear_screen()
         UI.print_banner(self.device, self.attack_running, self.blackout_running,
                        self.sniffer_running, self.sae_overflow_running,
@@ -2389,48 +2486,164 @@ class JanOS:
         UI.print_compact_box(
             "BEACON SPAM",
             [
-                f"{Colors.YELLOW}Enter SSIDs separated by comma{Colors.NC}",
-                f"{Colors.GRAY}Example: FreeWiFi, Airport, Coffee{Colors.NC}",
-                f"{Colors.GRAY}Max recommended: 12 SSIDs{Colors.NC}",
+                f"{Colors.YELLOW}Starting from /sdcard/lab/ssids.txt{Colors.NC}",
+                f"{Colors.GRAY}Edit SSID list in: Attacks > Beacon spam > SSID list{Colors.NC}",
             ],
             Colors.CYAN
         )
 
-        try:
-            raw = input("SSIDs: ").strip()
-        except EOFError:
-            return
+        self.serial_mgr.clear_input()
+        self.serial_mgr.send_command("start_beacon_spam_ssids")
+        time.sleep(0.6)
+        lines = self.serial_mgr.read_until_silence(max_wait=6, idle_timeout=1.0)
 
-        if not raw:
-            print(f"{Colors.YELLOW}[!] Beacon spam cancelled{Colors.NC}")
-            time.sleep(1)
-            return
-
-        ssids = [s.strip() for s in raw.split(",") if s.strip()]
-        if not ssids:
-            print(f"{Colors.RED}[!] No valid SSIDs provided{Colors.NC}")
-            time.sleep(1)
-            return
-
-        if len(ssids) > 20:
-            print(f"{Colors.YELLOW}[!] Too many SSIDs, using first 20{Colors.NC}")
-            ssids = ssids[:20]
-
-        quoted_ssids = " ".join('"' + ssid.replace('"', '') + '"' for ssid in ssids)
-        command = f"start_beacon_spam {quoted_ssids}"
-
-        print(f"{Colors.YELLOW}[*] Sending beacon spam command...{Colors.NC}")
-        self.serial_mgr.send_command(command)
-        self.beacon_spam_running = True
-        time.sleep(0.8)
-
-        lines = self.serial_mgr.read_until_silence(max_wait=3, idle_timeout=0.7)
         for line in lines:
-            print(f"{Colors.CYAN}{line}{Colors.NC}")
+            if line and not line.startswith(">"):
+                print(f"{Colors.CYAN}{line}{Colors.NC}")
 
-        print(f"{Colors.GREEN}[+] Beacon spam started with {len(ssids)} SSID(s){Colors.NC}")
-        print(f"{Colors.WHITE}Press Enter to return (attack continues).{Colors.NC}")
-        input()
+        lower_text = "\n".join(line.lower() for line in lines)
+        fail_markers = (
+            "not found",
+            "is empty",
+            "failed",
+            "usage:",
+            "already running",
+            "error",
+        )
+        has_failure = any(marker in lower_text for marker in fail_markers)
+        has_success = "beacon spam started" in lower_text
+
+        if has_success or (lines and not has_failure):
+            self.beacon_spam_running = True
+            print(f"{Colors.GREEN}[+] Beacon spam is running{Colors.NC}")
+            print(f"{Colors.GRAY}Use 'Stop ALL actions' to stop it.{Colors.NC}")
+        else:
+            self.beacon_spam_running = False
+            print(f"{Colors.YELLOW}[!] Beacon spam was not started{Colors.NC}")
+
+        print()
+        input("Press Enter to continue...")
+
+    def beacon_spam_ssid_list_menu(self) -> None:
+        """Manage SSIDs stored in /sdcard/lab/ssids.txt."""
+        while True:
+            clear_screen()
+            UI.print_banner(self.device, self.attack_running, self.blackout_running,
+                           self.sniffer_running, self.sae_overflow_running,
+                           self.handshake_running, self.portal_running,
+                           self.evil_twin_running)
+
+            ssids, lines = self._run_ssid_list_command()
+            box_lines: List[str] = []
+
+            if ssids:
+                for idx, ssid in enumerate(ssids, 1):
+                    box_lines.append(f"{Colors.GREEN}{idx:>2}){Colors.NC} {ssid}")
+            else:
+                no_file = any("not found" in line.lower() for line in lines if line)
+                if no_file:
+                    box_lines.append(f"{Colors.YELLOW}ssids.txt not found on SD card{Colors.NC}")
+                else:
+                    box_lines.append(f"{Colors.YELLOW}No SSIDs in /sdcard/lab/ssids.txt{Colors.NC}")
+
+            UI.print_compact_box("SSID LIST", box_lines, Colors.CYAN, width=max(40, min(get_terminal_width() - 4, 110)))
+            print(f"{Colors.GREEN}1){Colors.NC} Add SSID")
+            print(f"{Colors.GREEN}2){Colors.NC} Remove SSID")
+            print(f"{Colors.GRAY}0){Colors.NC} Back")
+            print()
+
+            choice = input("Select option: ").strip()
+            if choice == '0':
+                return
+            if choice == '1':
+                new_ssid = input("SSID to add: ").strip()
+                clean_ssid = new_ssid.replace('"', '').strip()
+                if not clean_ssid:
+                    print(f"{Colors.YELLOW}[!] SSID cannot be empty{Colors.NC}")
+                    time.sleep(1)
+                    continue
+                if len(clean_ssid) > 32:
+                    print(f"{Colors.YELLOW}[!] SSID too long, trimmed to 32 chars{Colors.NC}")
+                    clean_ssid = clean_ssid[:32]
+
+                self.serial_mgr.clear_input()
+                self.serial_mgr.send_command(f'add_ssid "{clean_ssid}"')
+                time.sleep(0.4)
+                resp = self.serial_mgr.read_until_silence(max_wait=4, idle_timeout=0.8)
+                print()
+                for line in resp:
+                    if line and not line.startswith(">"):
+                        print(f"{Colors.CYAN}{line}{Colors.NC}")
+                print()
+                input("Press Enter to continue...")
+                continue
+            if choice == '2':
+                if not ssids:
+                    print(f"{Colors.YELLOW}[!] No SSIDs to remove{Colors.NC}")
+                    time.sleep(1)
+                    continue
+
+                idx_text = input("SSID number to remove: ").strip()
+                if not idx_text.isdigit():
+                    print(f"{Colors.RED}[!] Invalid number{Colors.NC}")
+                    time.sleep(1)
+                    continue
+
+                idx = int(idx_text)
+                if idx < 1 or idx > len(ssids):
+                    print(f"{Colors.RED}[!] Number out of range{Colors.NC}")
+                    time.sleep(1)
+                    continue
+
+                confirm = input(f"Remove '{ssids[idx - 1]}'? [y/N]: ").strip().lower()
+                if confirm not in ['y', 'yes']:
+                    print(f"{Colors.YELLOW}[!] Remove cancelled{Colors.NC}")
+                    time.sleep(1)
+                    continue
+
+                self.serial_mgr.clear_input()
+                self.serial_mgr.send_command(f"remove_ssid {idx}")
+                time.sleep(0.4)
+                resp = self.serial_mgr.read_until_silence(max_wait=4, idle_timeout=0.8)
+                print()
+                for line in resp:
+                    if line and not line.startswith(">"):
+                        print(f"{Colors.CYAN}{line}{Colors.NC}")
+                print()
+                input("Press Enter to continue...")
+                continue
+
+            print(f"{Colors.RED}Invalid option{Colors.NC}")
+            time.sleep(1)
+
+    def beacon_spam_menu(self) -> None:
+        """Beacon spam submenu."""
+        while True:
+            try:
+                clear_screen()
+                UI.print_banner(self.device, self.attack_running, self.blackout_running,
+                               self.sniffer_running, self.sae_overflow_running,
+                               self.handshake_running, self.portal_running,
+                               self.evil_twin_running)
+                UI.print_beacon_spam_menu()
+                if self.beacon_spam_running:
+                    print(f"{Colors.YELLOW}[!] Beacon spam is RUNNING{Colors.NC}")
+                    print()
+
+                choice = input("Select option: ").strip()
+                if choice == '1':
+                    self.start_beacon_spam_attack()
+                elif choice == '2':
+                    self.beacon_spam_ssid_list_menu()
+                elif choice == '0':
+                    return
+                else:
+                    print(f"{Colors.RED}Invalid option{Colors.NC}")
+                    time.sleep(1)
+            except (KeyboardInterrupt, EOFError):
+                print(f"\n{Colors.YELLOW}[*] Returning to attacks menu{Colors.NC}")
+                time.sleep(1)
+                return
 
     def run_gps_module_command(self, command: str) -> None:
         """Send GPS module command and print response."""
@@ -2538,6 +2751,12 @@ class JanOS:
 
         self.wardrive_logged_networks = 0
         self.wardrive_last_file = ""
+        self.wardrive_last_lat = ""
+        self.wardrive_last_lon = ""
+        self.wardrive_last_alt = ""
+        self.wardrive_last_acc = ""
+        self.wardrive_waiting_for_fix = False
+        self.last_wardrive_line = ""
         self.wardrive_running = True
         self.stop_wardrive_event.clear()
 
@@ -2553,8 +2772,16 @@ class JanOS:
         try:
             self.wait_for_enter_with_status(
                 lambda: (
-                    f"{Colors.CYAN}Wardrive time: {int(time.time() - start_time)}s"
-                    f" | Logged: {self.wardrive_logged_networks} networks{Colors.NC}"
+                    f"{Colors.CYAN}{Colors.BOLD}Wardrive: {int(time.time() - start_time)}s"
+                    f" | Logged: {self.wardrive_logged_networks}{Colors.NC}"
+                    + (
+                        f"{Colors.GREEN}{Colors.BOLD} | GPS: {self.wardrive_last_lat},{self.wardrive_last_lon}{Colors.NC}"
+                        if self.wardrive_last_lat and self.wardrive_last_lon
+                        else (
+                            f"{Colors.YELLOW} | GPS: waiting fix{Colors.NC}"
+                            if self.wardrive_waiting_for_fix else ""
+                        )
+                    )
                 ),
                 poll_interval=1.0
             )
@@ -2605,22 +2832,47 @@ class JanOS:
                        self.sniffer_running, self.sae_overflow_running,
                        self.handshake_running, self.portal_running,
                        self.evil_twin_running)
-        print(f"{Colors.YELLOW}[*] Sending: {command}{Colors.NC}")
+
+        # Clear stale logs from previous operations (e.g. stop/wardrive traces)
+        # so only current command output is parsed.
+        self.serial_mgr.clear_input()
         self.serial_mgr.send_command(command)
         time.sleep(0.5)
         lines = self.serial_mgr.read_until_silence(max_wait=6, idle_timeout=1.0)
 
         files: List[str] = []
         list_lines: List[str] = []
+        reading_file_block = False
+        is_html_listing = command.strip().startswith("list_sd")
+        is_dir_listing = command.strip().startswith("list_dir")
+
         for line in lines:
             if not line or line.startswith(">"):
                 continue
-            m = re.match(r'^\s*(\d+)\s+(.+)$', line)
-            if m and not m.group(2).lower().startswith("file(s)"):
-                files.append(m.group(2).strip())
-                list_lines.append(f"{Colors.GREEN}{m.group(1):>2}){Colors.NC} {m.group(2).strip()}")
-            elif not line.lower().startswith("found ") and not line.lower().startswith("files in "):
-                list_lines.append(line)
+
+            lower = line.lower()
+            if is_html_listing and "html files found" in lower:
+                reading_file_block = True
+                continue
+            if is_dir_listing and lower.startswith("files in "):
+                reading_file_block = True
+                continue
+
+            # For list_sd/list_dir we only want numbered file rows.
+            if is_html_listing or is_dir_listing:
+                if not reading_file_block:
+                    continue
+
+            m = re.match(r'^\s*(\d+)[\)\.]?\s+(.+)$', line)
+            if not m:
+                continue
+
+            name = m.group(2).strip()
+            if not name or name.lower().startswith("file(s)"):
+                continue
+
+            files.append(name)
+            list_lines.append(f"{Colors.GREEN}{len(files):>2}){Colors.NC} {name}")
 
         if not list_lines:
             list_lines = [f"{Colors.YELLOW}No entries found{Colors.NC}"]
@@ -2986,7 +3238,7 @@ class JanOS:
                 elif choice == '6':
                     self.evil_twin_menu()
                 elif choice == '7':
-                    self.start_beacon_spam_attack()
+                    self.beacon_spam_menu()
                 elif choice == '8':
                     self.stop_all_attacks()
                 elif choice == '0':
@@ -3171,8 +3423,6 @@ class JanOS:
                     self.wardrive_menu()
                 elif choice == '5':
                     self.sd_data_menu()
-                elif choice == '6':
-                    self.system_menu()
                 elif choice in ['0', 'q', 'Q']:
                     if self.attack_running or self.blackout_running or self.sniffer_running or self.sae_overflow_running or self.handshake_running or self.portal_running or self.evil_twin_running or self.wardrive_running or self.beacon_spam_running:
                         print()
