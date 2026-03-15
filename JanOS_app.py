@@ -266,7 +266,7 @@ class UI:
         print(f"{Colors.CYAN}║{Colors.NC}                                                            {Colors.CYAN}║{Colors.NC}")
         print(f"{Colors.CYAN}║{Colors.NC}   {Colors.GREEN}1){Colors.NC}  Start Deauth Attack                              {Colors.CYAN}║{Colors.NC}")
         print(f"{Colors.CYAN}║{Colors.NC}   {Colors.GREEN}2){Colors.NC}  Blackout Attack                                  {Colors.CYAN}║{Colors.NC}")
-        print(f"{Colors.CYAN}║{Colors.NC}   {Colors.GREEN}3){Colors.NC}  WPA3 SAE Overflow                                {Colors.CYAN}║{Colors.NC}")
+        print(f"{Colors.CYAN}║{Colors.NC}   {Colors.GREEN}3){Colors.NC}  WPA3 SAE Overflow (Single Target)                {Colors.CYAN}║{Colors.NC}")
         print(f"{Colors.CYAN}║{Colors.NC}   {Colors.GREEN}4){Colors.NC}  Handshake Capture                                {Colors.CYAN}║{Colors.NC}")
         print(f"{Colors.CYAN}║{Colors.NC}   {Colors.GREEN}5){Colors.NC}  Portal Setup                                     {Colors.CYAN}║{Colors.NC}")
         print(f"{Colors.CYAN}║{Colors.NC}   {Colors.MAGENTA}6){Colors.NC}  Evil Twin Attack                                {Colors.CYAN}║{Colors.NC}")
@@ -1252,8 +1252,30 @@ class JanOS:
         print(f"{Colors.WHITE}Press Enter to return to menu (attack continues in background){Colors.NC}")
         input()
     
-    def start_sae_overflow_attack(self) -> None:
-        """Start WPA3 SAE Overflow attack."""
+    def start_sae_overflow_attack(self, target_network: Optional[Dict[str, str]] = None) -> None:
+        """Start WPA3 SAE Overflow attack for a single selected network."""
+        selected_indices = self.network_mgr.selected_networks.split()
+        if len(selected_indices) != 1:
+            print(f"{Colors.YELLOW}[!] SAE Overflow requires exactly ONE selected network.{Colors.NC}")
+            print(f"{Colors.YELLOW}[*] Use option 3 in Attacks Menu to pick one target.{Colors.NC}")
+            print()
+            input("Press Enter to continue...")
+            return
+        
+        target_index = selected_indices[0]
+        if not target_network:
+            for network in self.network_mgr.networks:
+                if network.get('index') == target_index:
+                    target_network = network
+                    break
+        
+        target_ssid = target_network.get('ssid', f"Network #{target_index}") if target_network else f"Network #{target_index}"
+        target_channel = target_network.get('channel', '?') if target_network else '?'
+        target_auth = target_network.get('auth', '?') if target_network else '?'
+        
+        if len(target_ssid) > 40:
+            target_ssid = target_ssid[:37] + "..."
+        
         clear_screen()
         UI.print_banner(self.device, self.attack_running, self.blackout_running, 
                        self.sniffer_running, self.sae_overflow_running,
@@ -1264,8 +1286,13 @@ class JanOS:
         print(f"{Colors.MAGENTA}║{Colors.NC}                   {Colors.WHITE}{Colors.BOLD}⚠  WPA3 SAE OVERFLOW  ⚠{Colors.NC}                                 {Colors.MAGENTA}║{Colors.NC}")
         print(f"{Colors.MAGENTA}╠══════════════════════════════════════════════════════════════════════════════╣{Colors.NC}")
         print(f"{Colors.MAGENTA}║{Colors.NC}                                                                              {Colors.MAGENTA}║{Colors.NC}")
+        print(f"{Colors.MAGENTA}║{Colors.NC}  {Colors.GREEN}Target: {target_ssid} (#{target_index}){Colors.NC}{' ' * max(0, 51 - len(target_ssid) - len(target_index))}{Colors.MAGENTA}║{Colors.NC}")
+        print(f"{Colors.MAGENTA}║{Colors.NC}  {Colors.GREEN}Channel: {target_channel} | Auth: {target_auth}{Colors.NC}{' ' * max(0, 47 - len(str(target_channel)) - len(target_auth))}{Colors.MAGENTA}║{Colors.NC}")
+        print(f"{Colors.MAGENTA}║{Colors.NC}                                                                              {Colors.MAGENTA}║{Colors.NC}")
         print(f"{Colors.MAGENTA}║{Colors.NC}  {Colors.YELLOW}WPA3 SAE Overflow attack targets WPA3 networks{Colors.NC}                                 {Colors.MAGENTA}║{Colors.NC}")
         print(f"{Colors.MAGENTA}║{Colors.NC}  {Colors.YELLOW}using Simultaneous Authentication of Equals (SAE).{Colors.NC}                              {Colors.MAGENTA}║{Colors.NC}")
+        print(f"{Colors.MAGENTA}║{Colors.NC}                                                                              {Colors.MAGENTA}║{Colors.NC}")
+        print(f"{Colors.MAGENTA}║{Colors.NC}  {Colors.CYAN}UART command: sae_overflow{Colors.NC}                                                     {Colors.MAGENTA}║{Colors.NC}")
         print(f"{Colors.MAGENTA}║{Colors.NC}                                                                              {Colors.MAGENTA}║{Colors.NC}")
         print(f"{Colors.MAGENTA}║{Colors.NC}  {Colors.RED}⚠  WARNING: This attack is for educational purposes only!{Colors.NC}                       {Colors.MAGENTA}║{Colors.NC}")
         print(f"{Colors.MAGENTA}║{Colors.NC}                                                                              {Colors.MAGENTA}║{Colors.NC}")
@@ -1532,6 +1559,134 @@ class JanOS:
             print(f"{Colors.RED}[!] Please enter a valid number{Colors.NC}")
             time.sleep(1)
             return None
+
+    def select_sae_target_network_menu(self) -> Optional[Dict[str, str]]:
+        """Display network selection menu for SAE Overflow target."""
+        if self.network_mgr.network_count == 0:
+            print(f"{Colors.YELLOW}[!] No networks scanned yet. Run a scan first.{Colors.NC}")
+            return None
+        
+        clear_screen()
+        UI.print_banner(self.device, self.attack_running, self.blackout_running, 
+                       self.sniffer_running, self.sae_overflow_running,
+                       self.handshake_running, self.portal_running,
+                       self.evil_twin_running)
+        print()
+        print(f"{Colors.MAGENTA}╔══════════════════════════════════════════════════════════════════════════════╗{Colors.NC}")
+        print(f"{Colors.MAGENTA}║{Colors.NC}                {Colors.WHITE}{Colors.BOLD}⚠  SELECT SAE TARGET NETWORK  ⚠{Colors.NC}                           {Colors.MAGENTA}║{Colors.NC}")
+        print(f"{Colors.MAGENTA}╠══════════════════════════════════════════════════════════════════════════════╣{Colors.NC}")
+        print(f"{Colors.MAGENTA}║{Colors.NC}                                                                              {Colors.MAGENTA}║{Colors.NC}")
+        print(f"{Colors.MAGENTA}║{Colors.NC}  {Colors.YELLOW}Select ONE target network for SAE Overflow attack:{Colors.NC}                               {Colors.MAGENTA}║{Colors.NC}")
+        print(f"{Colors.MAGENTA}║{Colors.NC}                                                                              {Colors.MAGENTA}║{Colors.NC}")
+        
+        print(f"{Colors.MAGENTA}║{Colors.NC}  {Colors.WHITE}#{Colors.NC}   {Colors.WHITE}SSID{Colors.NC}                        {Colors.WHITE}CH{Colors.NC}  {Colors.WHITE}RSSI{Colors.NC}  {Colors.WHITE}Auth{Colors.NC}                    {Colors.MAGENTA}║{Colors.NC}")
+        print(f"{Colors.MAGENTA}╠══════════════════════════════════════════════════════════════════════════════╣{Colors.NC}")
+        
+        for network in self.network_mgr.networks:
+            idx = network.get('index', '?')
+            ssid = network.get('ssid', '?')
+            channel = network.get('channel', '?')
+            auth = network.get('auth', '?')
+            rssi = network.get('rssi', '?')
+            
+            if len(ssid) > 24:
+                ssid = ssid[:21] + "..."
+            if len(auth) > 12:
+                auth = auth[:10] + ".."
+            
+            rssi_color = self.network_mgr.get_rssi_color(rssi)
+            print(f"{Colors.MAGENTA}║{Colors.NC}  {Colors.GREEN}{idx:<3}{Colors.NC} {ssid:<26} {channel:<3} {rssi_color}{rssi:<5}{Colors.NC} {auth:<12}              {Colors.MAGENTA}║{Colors.NC}")
+        
+        print(f"{Colors.MAGENTA}╚══════════════════════════════════════════════════════════════════════════════╝{Colors.NC}")
+        print()
+        
+        try:
+            selection = input("Enter ONE network number for SAE Overflow (0 to cancel): ").strip()
+        except EOFError:
+            return None
+        
+        if not selection or selection == '0':
+            print(f"{Colors.YELLOW}[!] Selection cancelled{Colors.NC}")
+            time.sleep(1)
+            return None
+        
+        try:
+            int(selection)
+            for network in self.network_mgr.networks:
+                if network.get('index') == selection:
+                    print(f"{Colors.GREEN}[+] Selected SAE target: {network.get('ssid')} (Channel: {network.get('channel')}){Colors.NC}")
+                    return network
+            
+            print(f"{Colors.RED}[!] Network number {selection} not found{Colors.NC}")
+            time.sleep(1)
+            return None
+        except ValueError:
+            print(f"{Colors.RED}[!] Please enter a valid number{Colors.NC}")
+            time.sleep(1)
+            return None
+
+    def setup_and_start_sae_overflow(self) -> None:
+        """Select one target network and start SAE Overflow."""
+        if self.network_mgr.network_count == 0:
+            print(f"{Colors.YELLOW}[!] No networks scanned yet. Run a scan first.{Colors.NC}")
+            print()
+            input("Press Enter to continue...")
+            return
+        
+        target_network = None
+        selected_indices = self.network_mgr.selected_networks.split()
+        if len(selected_indices) == 1:
+            selected_index = selected_indices[0]
+            for network in self.network_mgr.networks:
+                if network.get('index') == selected_index:
+                    target_network = network
+                    break
+        
+        if not target_network:
+            clear_screen()
+            UI.print_banner(self.device, self.attack_running, self.blackout_running, 
+                           self.sniffer_running, self.sae_overflow_running,
+                           self.handshake_running, self.portal_running,
+                           self.evil_twin_running)
+            print()
+            print(f"{Colors.MAGENTA}╔══════════════════════════════════════════════════════════════════════════════╗{Colors.NC}")
+            print(f"{Colors.MAGENTA}║{Colors.NC}                {Colors.WHITE}{Colors.BOLD}⚠  SAE OVERFLOW ATTACK SETUP  ⚠{Colors.NC}                           {Colors.MAGENTA}║{Colors.NC}")
+            print(f"{Colors.MAGENTA}╠══════════════════════════════════════════════════════════════════════════════╣{Colors.NC}")
+            print(f"{Colors.MAGENTA}║{Colors.NC}                                                                              {Colors.MAGENTA}║{Colors.NC}")
+            print(f"{Colors.MAGENTA}║{Colors.NC}  {Colors.YELLOW}Step 1: Select one target network{Colors.NC}                                              {Colors.MAGENTA}║{Colors.NC}")
+            print(f"{Colors.MAGENTA}║{Colors.NC}                                                                              {Colors.MAGENTA}║{Colors.NC}")
+            print(f"{Colors.MAGENTA}╚══════════════════════════════════════════════════════════════════════════════╝{Colors.NC}")
+            print()
+            
+            target_network = self.select_sae_target_network_menu()
+            if not target_network:
+                print(f"{Colors.YELLOW}[!] SAE Overflow setup cancelled{Colors.NC}")
+                time.sleep(1)
+                return
+        
+        target_index = target_network.get('index', '').strip()
+        if not target_index:
+            print(f"{Colors.RED}[!] Selected network has no valid index{Colors.NC}")
+            print()
+            input("Press Enter to continue...")
+            return
+        
+        print()
+        print(f"{Colors.MAGENTA}[*] Step 2: Sync selected network to device...{Colors.NC}")
+        print(f"{Colors.MAGENTA}[*] Sending: select_networks {target_index}{Colors.NC}")
+        self.serial_mgr.send_command(f"select_networks {target_index}")
+        self.network_mgr.set_selected_networks(target_index)
+        time.sleep(1)
+        
+        lines = self.serial_mgr.read_response(timeout=2)
+        for line in lines:
+            if "selected" in line.lower() or "network" in line.lower():
+                print(f"{Colors.GREEN}[+] {line}{Colors.NC}")
+        
+        print(f"{Colors.GREEN}[+] SAE target set to network #{target_index}{Colors.NC}")
+        time.sleep(0.8)
+        
+        self.start_sae_overflow_attack(target_network)
     
     def setup_and_start_portal(self) -> None:
         """Full portal setup and start workflow."""
@@ -2285,7 +2440,7 @@ class JanOS:
                 elif choice == '2':
                     self.start_blackout_attack()
                 elif choice == '3':
-                    self.start_sae_overflow_attack()
+                    self.setup_and_start_sae_overflow()
                 elif choice == '4':
                     self.start_handshake_attack()
                 elif choice == '5':
