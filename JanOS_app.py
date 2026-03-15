@@ -861,6 +861,10 @@ class JanOS:
         self.evil_twin_client_count = 0
         self.wardrive_logged_networks = 0
         self.wardrive_last_file = ""
+        self.handshake_capture_count = 0
+        self.handshake_last_file = ""
+        self.handshake_last_ssid = ""
+        self.last_handshake_line = ""
         self.wardrive_last_lat = ""
         self.wardrive_last_lon = ""
         self.wardrive_last_alt = ""
@@ -1044,9 +1048,51 @@ class JanOS:
         if "error" in lower or "failed" in lower:
             print(f"\n{Colors.RED}{Colors.BOLD}[!] {data}{Colors.NC}")
 
-    def wait_for_enter_with_status(self, status_builder, poll_interval: float = 1.0) -> None:
+    def update_handshake_display(self, data: str) -> None:
+        """Update handshake monitor from UART output."""
+        if not data:
+            return
+        data = data.strip()
+        if not data or data.startswith(">") or data == self.last_handshake_line:
+            return
+        self.last_handshake_line = data
+
+        lower = data.lower()
+
+        captured_match = re.search(r'Handshake\s*#\s*(\d+)\s*captured', data, re.IGNORECASE)
+        if captured_match:
+            self.handshake_capture_count = max(self.handshake_capture_count, int(captured_match.group(1)))
+            print(f"\n{Colors.GREEN}{Colors.BOLD}[+] {data}{Colors.NC}")
+            return
+
+        if "handshake is complete and valid" in lower:
+            print(f"\n{Colors.GREEN}{Colors.BOLD}[+] {data}{Colors.NC}")
+            return
+
+        pcap_match = re.search(r'PCAP saved:\s*(/sdcard/\S+)', data, re.IGNORECASE)
+        if pcap_match:
+            self.handshake_last_file = pcap_match.group(1)
+            print(f"\n{Colors.GREEN}{Colors.BOLD}[+] {data}{Colors.NC}")
+            return
+
+        ssid_match = re.search(r'SSID:\s*([^,(]+)', data, re.IGNORECASE)
+        if ssid_match and "handshake saved for ssid" in lower:
+            self.handshake_last_ssid = ssid_match.group(1).strip()
+            print(f"\n{Colors.CYAN}[*] {data}{Colors.NC}")
+            return
+
+        if "error" in lower or "failed" in lower:
+            print(f"\n{Colors.RED}{Colors.BOLD}[!] {data}{Colors.NC}")
+            return
+
+        if any(key in lower for key in ("handshake", "deauth", "target", "scan", "channel", "captur", "pcap")):
+            print(f"\n{Colors.CYAN}[*] {data}{Colors.NC}")
+            return
+
+    def wait_for_enter_with_status(self, status_builder, poll_interval: float = 1.0,
+                                   prompt: str = "Press Enter to stop...") -> None:
         """Show status line in loop until user presses Enter."""
-        print(f"{Colors.WHITE}Press Enter to stop...{Colors.NC}")
+        print(f"{Colors.WHITE}{prompt}{Colors.NC}")
         while True:
             status = status_builder()
             print(f"\r{fit_ansi_text(status, max(20, get_terminal_width() - 1))}", end="", flush=True)
@@ -1551,26 +1597,27 @@ class JanOS:
                        self.sniffer_running, self.sae_overflow_running,
                        self.handshake_running, self.portal_running,
                        self.evil_twin_running)
-        print()
-        print(f"{Colors.YELLOW}╔══════════════════════════════════════════════════════════════════════════════╗{Colors.NC}")
-        print(f"{Colors.YELLOW}║{Colors.NC}                 {Colors.WHITE}{Colors.BOLD}⚠  WPA HANDSHAKE CAPTURE  ⚠{Colors.NC}                               {Colors.YELLOW}║{Colors.NC}")
-        print(f"{Colors.YELLOW}╠══════════════════════════════════════════════════════════════════════════════╣{Colors.NC}")
-        print(f"{Colors.YELLOW}║{Colors.NC}                                                                              {Colors.YELLOW}║{Colors.NC}")
-        
+        lines = []
         if self.network_mgr.selected_networks:
-            selected_len = len(self.network_mgr.selected_networks)
-            padding = max(0, 45 - selected_len)
-            print(f"{Colors.YELLOW}║{Colors.NC}  {Colors.GREEN}Target networks: {Colors.WHITE}{self.network_mgr.selected_networks}{Colors.NC}{' ' * padding}{Colors.YELLOW}║{Colors.NC}")
-            print(f"{Colors.YELLOW}║{Colors.NC}  {Colors.GRAY}Attack will target ONLY selected networks{Colors.NC}                                       {Colors.YELLOW}║{Colors.NC}")
+            lines.append(f"{Colors.GREEN}Target networks: {Colors.WHITE}{self.network_mgr.selected_networks}{Colors.NC}")
+            lines.append(f"{Colors.GRAY}Mode: target ONLY selected networks{Colors.NC}")
         else:
-            print(f"{Colors.YELLOW}║{Colors.NC}  {Colors.YELLOW}No networks selected{Colors.NC}                                                         {Colors.YELLOW}║{Colors.NC}")
-            print(f"{Colors.YELLOW}║{Colors.NC}  {Colors.GRAY}Attack will scan every 5 minutes and target ALL networks{Colors.NC}                       {Colors.YELLOW}║{Colors.NC}")
-        
-        print(f"{Colors.YELLOW}║{Colors.NC}                                                                              {Colors.YELLOW}║{Colors.NC}")
-        print(f"{Colors.YELLOW}║{Colors.NC}  {Colors.YELLOW}This attack captures WPA/WPA2 handshakes for password cracking.{Colors.NC}                   {Colors.YELLOW}║{Colors.NC}")
-        print(f"{Colors.YELLOW}║{Colors.NC}  {Colors.GRAY}Captured handshakes can be used with tools like hashcat or aircrack-ng.{Colors.NC}            {Colors.YELLOW}║{Colors.NC}")
-        print(f"{Colors.YELLOW}║{Colors.NC}                                                                              {Colors.YELLOW}║{Colors.NC}")
-        print(f"{Colors.YELLOW}╚══════════════════════════════════════════════════════════════════════════════╝{Colors.NC}")
+            lines.append(f"{Colors.YELLOW}No networks selected{Colors.NC}")
+            lines.append(f"{Colors.GRAY}Mode: scan every 5 min, target ALL networks{Colors.NC}")
+        lines += [
+            "",
+            f"{Colors.YELLOW}Captures WPA/WPA2 handshakes for cracking.{Colors.NC}",
+            f"{Colors.GRAY}Use tools like hashcat/aircrack-ng on saved PCAPs.{Colors.NC}",
+            "",
+            f"{Colors.CYAN}Live monitor starts after confirmation.{Colors.NC}",
+            f"{Colors.GRAY}Enter = back to menu (attack keeps running).{Colors.NC}",
+        ]
+        UI.print_compact_box(
+            "WPA HANDSHAKE CAPTURE",
+            lines,
+            Colors.YELLOW,
+            width=max(40, min(get_terminal_width() - 4, 110))
+        )
         print()
         
         try:
@@ -1583,21 +1630,57 @@ class JanOS:
             time.sleep(1)
             return
         
-        print()
+        self.handshake_capture_count = 0
+        self.handshake_last_file = ""
+        self.handshake_last_ssid = ""
+        self.last_handshake_line = ""
+
         print(f"{Colors.YELLOW}[*] Starting Handshake Capture attack...{Colors.NC}")
+        self.serial_mgr.clear_input()
         self.serial_mgr.send_command("start_handshake")
         self.handshake_running = True
-        
-        print(f"{Colors.YELLOW}[+] Handshake Capture attack is running!{Colors.NC}")
-        
-        if self.network_mgr.selected_networks:
-            print(f"{Colors.YELLOW}[*] Targeting selected networks: {self.network_mgr.selected_networks}{Colors.NC}")
-        else:
-            print(f"{Colors.YELLOW}[*] Scanning all networks every 5 minutes{Colors.NC}")
-        
+
+        stop_event = threading.Event()
+        monitor_thread = threading.Thread(
+            target=self.serial_mgr.read_sniffer_data,
+            args=(self.update_handshake_display, stop_event),
+            daemon=True
+        )
+        monitor_thread.start()
+
+        start_time = time.time()
+        print(f"{Colors.CYAN}[+] Live handshake monitor active{Colors.NC}")
+        try:
+            self.wait_for_enter_with_status(
+                lambda: (
+                    f"{Colors.YELLOW}Handshaker: {int(time.time() - start_time)}s{Colors.NC}"
+                    f"{Colors.CYAN} | Captured: {self.handshake_capture_count}{Colors.NC}"
+                    + (
+                        f"{Colors.GREEN} | SSID: {self.handshake_last_ssid}{Colors.NC}"
+                        if self.handshake_last_ssid else ""
+                    )
+                    + (
+                        f"{Colors.GREEN} | File: {self.handshake_last_file.replace('/sdcard/', '')}{Colors.NC}"
+                        if self.handshake_last_file else ""
+                    )
+                ),
+                poll_interval=1.0,
+                prompt="Press Enter to go back to attacks menu (monitor closes, attack keeps running)..."
+            )
+        except KeyboardInterrupt:
+            pass
+        finally:
+            stop_event.set()
+            monitor_thread.join(timeout=2)
+
         print()
-        print(f"{Colors.WHITE}Press Enter to return to menu (attack continues in background){Colors.NC}")
-        input()
+        print(f"{Colors.YELLOW}[*] Returning to attacks menu. Handshake attack remains active on ESP.{Colors.NC}")
+        if self.handshake_capture_count > 0:
+            print(f"{Colors.GREEN}[+] Captured handshakes in this session: {self.handshake_capture_count}{Colors.NC}")
+        if self.handshake_last_file:
+            print(f"{Colors.GREEN}[+] Last saved file: {self.handshake_last_file}{Colors.NC}")
+        print()
+        input("Press Enter to continue...")
     
     def get_html_files_from_sd(self) -> bool:
         """Get HTML files from SD card and parse them."""
