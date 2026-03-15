@@ -2416,7 +2416,7 @@ class JanOS:
             print(f"{Colors.YELLOW}[!] Too many SSIDs, using first 20{Colors.NC}")
             ssids = ssids[:20]
 
-        quoted_ssids = " ".join(f"\"{ssid.replace('\"', '')}\"" for ssid in ssids)
+        quoted_ssids = " ".join('"' + ssid.replace('"', '') + '"' for ssid in ssids)
         command = f"start_beacon_spam {quoted_ssids}"
 
         print(f"{Colors.YELLOW}[*] Sending beacon spam command...{Colors.NC}")
