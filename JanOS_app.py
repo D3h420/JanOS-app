@@ -146,9 +146,72 @@ def clear_screen() -> None:
 
 def is_probable_esp32(port) -> bool:
     """Heuristic check to guess ESP32 serial adapters."""
-    haystack = " ".join(filter(None, [port.description, port.manufacturer, port.hwid])).lower()
+    haystack = " ".join(
+        filter(
+            None,
+            [
+                getattr(port, 'device', ''),
+                getattr(port, 'description', ''),
+                getattr(port, 'manufacturer', ''),
+                getattr(port, 'product', ''),
+                getattr(port, 'interface', ''),
+                getattr(port, 'hwid', ''),
+            ],
+        )
+    ).lower()
     keywords = ["esp32", "cp210", "ch340", "silicon labs", "uart"]
     return any(keyword in haystack for keyword in keywords)
+
+def esp32_c5_priority(port) -> int:
+    """Return priority score for auto-selecting ESP32-C5 serial device."""
+    haystack = " ".join(
+        filter(
+            None,
+            [
+                getattr(port, 'device', ''),
+                getattr(port, 'description', ''),
+                getattr(port, 'manufacturer', ''),
+                getattr(port, 'product', ''),
+                getattr(port, 'interface', ''),
+                getattr(port, 'hwid', ''),
+            ],
+        )
+    ).lower()
+
+    if any(marker in haystack for marker in ("esp32-c5", "esp32 c5", "esp32c5")):
+        return 3
+    if "esp32" in haystack:
+        return 2
+    if is_probable_esp32(port):
+        return 1
+    return 0
+
+def select_esp32_c5_device_auto() -> str:
+    """Auto-select the best available ESP32-C5 USB/UART device."""
+    ports = list_serial_devices()
+    if not ports:
+        print(f"{Colors.RED}[!] No serial devices found. Connect ESP32-C5 and retry.{Colors.NC}")
+        sys.exit(1)
+
+    ranked_ports = []
+    for port in ports:
+        priority = esp32_c5_priority(port)
+        if priority > 0:
+            ranked_ports.append((priority, port))
+
+    if not ranked_ports:
+        print(f"{Colors.RED}[!] ESP32-C5 not detected on USB/UART ports.{Colors.NC}")
+        print(f"{Colors.YELLOW}[*] You can still force a path: ./JanOS_app.py /dev/ttyUSB0{Colors.NC}")
+        sys.exit(1)
+
+    ranked_ports.sort(key=lambda item: (-item[0], item[1].device))
+    selected = ranked_ports[0][1]
+    desc = selected.description or "Unknown"
+    print(
+        f"{Colors.GREEN}[+] Auto-selected ESP32-C5: {selected.device}{Colors.NC} "
+        f"{Colors.GRAY}({desc}){Colors.NC}"
+    )
+    return selected.device
 
 def list_serial_devices() -> List:
     """Return a list of available serial devices."""
@@ -165,7 +228,7 @@ def print_usage() -> None:
     print("  device    Serial device path (e.g., /dev/ttyUSB0, /dev/cu.usbserial-*)")
     print()
     print("Examples:")
-    print("  ./JanOS_app.py                      # Interactive selector")
+    print("  ./JanOS_app.py                      # Auto-select ESP32-C5")
     print("  ./JanOS_app.py /dev/ttyUSB0        # Linux")
     print("  ./JanOS_app.py /dev/cu.usbserial-0001  # macOS")
     print()
@@ -3614,7 +3677,7 @@ def main():
         device = sys.argv[1]
     
     if not device:
-        device = select_device_interactive()
+        device = select_esp32_c5_device_auto()
     
     # Create and run application
     app = JanOS(device)
