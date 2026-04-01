@@ -892,6 +892,20 @@ class JanOS:
         if self.os_type == 'unknown':
             print(f"{Colors.RED}Error: Unsupported operating system{Colors.NC}")
             sys.exit(1)
+
+    def _mark_all_actions_stopped(self) -> None:
+        """Reset local state flags after sending global stop to ESP."""
+        self.attack_running = False
+        self.blackout_running = False
+        self.sniffer_running = False
+        self.sae_overflow_running = False
+        self.handshake_running = False
+        self.portal_running = False
+        self.evil_twin_running = False
+        self.wardrive_running = False
+        self.beacon_spam_running = False
+        self.arp_running = False
+        self.mitm_running = False
     
     def show_usage(self) -> None:
         """Show usage information."""
@@ -2954,6 +2968,9 @@ class JanOS:
 
     def _prepare_inside_network_access(self, attack_name: str) -> bool:
         """Ensure WiFi connection before ARP/MITM attack."""
+        safety_sync_done = False
+        is_ssh_session = bool(os.getenv("SSH_CONNECTION"))
+
         while True:
             clear_screen()
             UI.print_banner(self.device, self.attack_running, self.blackout_running,
@@ -2961,17 +2978,44 @@ class JanOS:
                            self.handshake_running, self.portal_running,
                            self.evil_twin_running)
 
+            if not safety_sync_done:
+                print(f"{Colors.YELLOW}[*] Syncing ESP state before {attack_name}...{Colors.NC}")
+                if is_ssh_session:
+                    print(f"{Colors.YELLOW}[!] SSH session detected. Active attacks can drop your SSH link.{Colors.NC}")
+                try:
+                    sync_choice = input("Send 'stop' to ESP before setup? [Y/n]: ").strip().lower()
+                except EOFError:
+                    return False
+
+                if sync_choice not in ['n', 'no']:
+                    self.serial_mgr.clear_input()
+                    self.serial_mgr.send_command("stop")
+                    time.sleep(0.4)
+                    sync_lines = self.serial_mgr.read_until_silence(max_wait=3, idle_timeout=0.6)
+                    for line in sync_lines:
+                        if line and not line.startswith(">"):
+                            print(f"{Colors.CYAN}{line}{Colors.NC}")
+                    self._mark_all_actions_stopped()
+                    print(f"{Colors.GREEN}[+] ESP stop sync complete{Colors.NC}")
+                    print()
+                    time.sleep(0.5)
+                safety_sync_done = True
+
             setup_lines = [
                 f"{Colors.YELLOW}{attack_name} requires active WiFi STA connection.{Colors.NC}",
                 f"{Colors.GRAY}Choose how to connect before starting the attack.{Colors.NC}",
+                f"{Colors.GRAY}All options below send UART commands to ESP on /dev/ttyUSB0.{Colors.NC}",
                 "",
                 f"{Colors.GREEN}1){Colors.NC} Scan nearby networks and choose target",
                 f"{Colors.GREEN}2){Colors.NC} Enter SSID and password manually",
+                f"{Colors.GREEN}3){Colors.NC} Skip connect (ESP already connected)",
                 "",
                 f"{Colors.GRAY}0){Colors.NC} Cancel",
             ]
             if self.wifi_connected and self.connected_ssid:
-                setup_lines.insert(2, f"{Colors.CYAN}Current session SSID: {self.connected_ssid}{Colors.NC}")
+                setup_lines.insert(3, f"{Colors.CYAN}Current session SSID: {self.connected_ssid}{Colors.NC}")
+            if is_ssh_session:
+                setup_lines.insert(3, f"{Colors.YELLOW}SSH mode: prefer option 3 if WiFi is already connected.{Colors.NC}")
 
             UI.print_compact_box(
                 "INSIDE NETWORK SETUP",
@@ -2989,6 +3033,7 @@ class JanOS:
                 return False
 
             if choice == '1':
+                print(f"{Colors.YELLOW}[*] UART -> scan_networks{Colors.NC}")
                 networks = self._scan_networks_for_connect()
                 if not networks:
                     print(f"{Colors.YELLOW}[!] No networks found. Try manual SSID/password.{Colors.NC}")
@@ -3050,6 +3095,14 @@ class JanOS:
                 print()
                 input("Press Enter to retry setup...")
                 continue
+
+            if choice == '3':
+                if self.wifi_connected and self.connected_ssid:
+                    print(f"{Colors.GREEN}[+] Using existing ESP connection: {self.connected_ssid}{Colors.NC}")
+                else:
+                    print(f"{Colors.YELLOW}[!] Skipping connect. Attack will use current ESP WiFi state.{Colors.NC}")
+                time.sleep(0.7)
+                return True
 
             print(f"{Colors.RED}Invalid option{Colors.NC}")
             time.sleep(1)
