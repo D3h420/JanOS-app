@@ -440,6 +440,7 @@ class UI:
             f"{Colors.GREEN}2){Colors.NC} evil twin & portal",
             f"{Colors.GREEN}3){Colors.NC} warlogs",
             f"{Colors.GREEN}4){Colors.NC} handshakes",
+            f"{Colors.GREEN}5){Colors.NC} pcap",
             "",
             f"{Colors.GRAY}0){Colors.NC} Back to main menu",
         ]
@@ -3465,7 +3466,8 @@ class JanOS:
                 time.sleep(1)
                 return
 
-    def list_dir_entries(self, command: str, title: str, base_path: str) -> None:
+    def list_dir_entries(self, command: str, title: str, base_path: str,
+                         extensions: Optional[Tuple[str, ...]] = None) -> None:
         """List SD entries for a path and optionally delete one."""
         clear_screen()
         UI.print_banner(self.device, self.attack_running, self.blackout_running,
@@ -3509,6 +3511,9 @@ class JanOS:
 
             name = m.group(2).strip()
             if not name or name.lower().startswith("file(s)"):
+                continue
+
+            if extensions and not name.lower().endswith(tuple(ext.lower() for ext in extensions)):
                 continue
 
             files.append(name)
@@ -3602,6 +3607,8 @@ class JanOS:
                     self.list_dir_entries("list_dir /sdcard/lab/wardrives", "SD WARLOGS", "lab/wardrives")
                 elif choice == '4':
                     self.list_dir_entries("list_dir /sdcard/lab/handshakes", "SD HANDSHAKES", "lab/handshakes")
+                elif choice == '5':
+                    self.list_dir_entries("list_dir /sdcard/lab/pcaps", "SD PCAPS", "lab/pcaps", (".pcap",))
                 elif choice == '0':
                     return
                 else:
