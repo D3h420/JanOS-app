@@ -319,6 +319,7 @@ class UI:
         """Print the attacks submenu."""
         lines = [
             "",
+            f"{Colors.GRAY}global WiFi attacks{Colors.NC}",
             f"{Colors.GREEN}1){Colors.NC} Deauth",
             f"{Colors.GREEN}2){Colors.NC} Blackout",
             f"{Colors.GREEN}3){Colors.NC} WPA3 SAE Overflow",
