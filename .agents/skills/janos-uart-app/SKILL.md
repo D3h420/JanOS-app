@@ -117,6 +117,13 @@ Every command response has a known end marker. Wait for it before proceeding:
 | `show_pass` | Timeout (no explicit end marker) |
 | `list_probes` | Timeout (no explicit end marker) |
 | `wpasec_upload` | `"Done:"` |
+| `start_pcap` | `"PCAP radio capture started"` or `"PCAP net capture started"` (initial); on stop: `"PCAP saved:"` |
+| `start_beacon_spam` | `"Beacon spam started. Use 'stop' to end."` |
+| `start_beacon_spam_ssids` | `"Beacon spam started. Use 'stop' to end."` (same as `start_beacon_spam`) |
+| `list_ssids` | Timeout (no explicit end marker, list ends after last indexed line) |
+| `add_ssid` | `"Added SSID:"` |
+| `remove_ssid` | `"SSID removed."` |
+| `version` | `"JanOS version: X.Y.Z"` (single line, immediate) |
 
 For commands without explicit end markers, use a timeout with empty-read detection (e.g., 3 consecutive empty reads of 500ms each).
 
@@ -419,7 +426,41 @@ start_wardrive   // or start_wardrive_promisc
   → stop
 ```
 
-### 6. Bluetooth Locate
+### 6. Beacon Spam from SSID File
+
+```
+list_ssids → show indexed SSID list
+  → user can add_ssid <name> to append
+  → user can remove_ssid <index> to delete
+start_beacon_spam_ssids
+  → wait for "Beacon spam started. Use 'stop' to end."
+  → stop
+```
+
+Or with inline SSIDs:
+```
+start_beacon_spam "SSID1" "SSID2" "SSID3"
+  → wait for "Beacon spam started. Use 'stop' to end."
+  → stop
+```
+
+### 7. PCAP Capture
+
+```
+// Radio mode (no prerequisites):
+start_pcap radio
+  → wait for "PCAP radio capture started -> ..."
+  → stop → "PCAP saved: ... (N frames, M drops)"
+
+// Net mode (requires WiFi connection):
+wifi_connect <SSID> <password>
+  → wait for "SUCCESS"
+start_pcap net
+  → wait for "PCAP net capture started -> ..."
+  → stop → "PCAP saved: ... (N frames, M drops)"
+```
+
+### 8. Bluetooth Locate
 
 ```
 scan_bt → parse device list → show scrollable list

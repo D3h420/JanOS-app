@@ -312,9 +312,10 @@ class UI:
         print()
 
     @staticmethod
-    def print_attacks_menu(selected_networks: str, attack_running: bool, blackout_running: bool, 
+    def print_attacks_menu(selected_networks: str, attack_running: bool, blackout_running: bool,
                           sae_overflow_running: bool, handshake_running: bool, portal_running: bool,
-                          evil_twin_running: bool, beacon_spam_running: bool = False) -> None:
+                          evil_twin_running: bool, beacon_spam_running: bool = False,
+                          arp_running: bool = False, mitm_running: bool = False) -> None:
         """Print the attacks submenu."""
         lines = [
             "",
@@ -325,7 +326,12 @@ class UI:
             f"{Colors.GREEN}5){Colors.NC} Portal",
             f"{Colors.GREEN}6){Colors.NC} Evil Twin",
             f"{Colors.GREEN}7){Colors.NC} Beacon spam",
-            f"{Colors.RED}8){Colors.NC} Stop ALL actions",
+            "",
+            f"{Colors.GRAY}inside network attacks{Colors.NC}",
+            f"{Colors.GREEN}8){Colors.NC} ARP",
+            f"{Colors.GREEN}9){Colors.NC} MITM",
+            "",
+            f"{Colors.RED}10){Colors.NC} Stop ALL actions",
             f"{Colors.GRAY}0){Colors.NC} Back to main menu",
         ]
         UI.print_compact_box("ATTACKS", lines, Colors.CYAN)
@@ -350,7 +356,11 @@ class UI:
             print(f"{Colors.MAGENTA}[!] Evil Twin Attack is RUNNING{Colors.NC}")
         if beacon_spam_running:
             print(f"{Colors.YELLOW}[!] Beacon spam is RUNNING{Colors.NC}")
-        if not attack_running and not blackout_running and not sae_overflow_running and not handshake_running and not portal_running and not evil_twin_running and not beacon_spam_running:
+        if arp_running:
+            print(f"{Colors.YELLOW}[!] ARP attack is RUNNING{Colors.NC}")
+        if mitm_running:
+            print(f"{Colors.CYAN}[!] MITM attack is RUNNING{Colors.NC}")
+        if not attack_running and not blackout_running and not sae_overflow_running and not handshake_running and not portal_running and not evil_twin_running and not beacon_spam_running and not arp_running and not mitm_running:
             print(f"{Colors.GRAY}[-] No attacks running{Colors.NC}")
         
         print()
@@ -840,6 +850,8 @@ class JanOS:
         self.evil_twin_running = False
         self.wardrive_running = False
         self.beacon_spam_running = False
+        self.arp_running = False
+        self.mitm_running = False
         self.sniffer_packets = 0
         self.sniffer_thread = None
         self.stop_sniffer_event = threading.Event()
@@ -2728,6 +2740,202 @@ class JanOS:
                 time.sleep(1)
                 return
 
+    def _parse_host_entries(self, lines: List[str]) -> List[Tuple[str, str]]:
+        """Parse list_hosts output into unique (ip, mac) entries."""
+        hosts: List[Tuple[str, str]] = []
+        seen = set()
+        for line in lines:
+            if not line or line.startswith(">"):
+                continue
+
+            match = re.search(
+                r'(\d{1,3}(?:\.\d{1,3}){3})\s*->\s*(([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2})',
+                line
+            )
+            if not match:
+                continue
+
+            ip = match.group(1)
+            mac = match.group(2).upper()
+            key = (ip, mac)
+            if key in seen:
+                continue
+            seen.add(key)
+            hosts.append(key)
+
+        return hosts
+
+    def start_arp_attack(self) -> None:
+        """Start ARP poisoning attack against selected host."""
+        clear_screen()
+        UI.print_banner(self.device, self.attack_running, self.blackout_running,
+                       self.sniffer_running, self.sae_overflow_running,
+                       self.handshake_running, self.portal_running,
+                       self.evil_twin_running)
+        UI.print_compact_box(
+            "ARP ATTACK",
+            [
+                f"{Colors.YELLOW}Inside-network attack (requires WiFi STA connection).{Colors.NC}",
+                f"{Colors.GRAY}Workflow: list_hosts -> choose target -> arp_ban.{Colors.NC}",
+            ],
+            Colors.CYAN,
+            width=max(40, min(get_terminal_width() - 4, 110))
+        )
+
+        try:
+            confirm = input("Scan hosts and start ARP attack? [y/N]: ").strip().lower()
+        except EOFError:
+            return
+
+        if confirm not in ['y', 'yes']:
+            print(f"{Colors.YELLOW}[!] ARP attack cancelled{Colors.NC}")
+            time.sleep(1)
+            return
+
+        print(f"{Colors.YELLOW}[*] Scanning local network hosts...{Colors.NC}")
+        self.serial_mgr.clear_input()
+        self.serial_mgr.send_command("list_hosts")
+        time.sleep(0.6)
+        lines = self.serial_mgr.read_until_silence(max_wait=8, idle_timeout=1.0)
+        clean_lines = [line for line in lines if line and not line.startswith(">")]
+
+        hosts = self._parse_host_entries(clean_lines)
+        lower_text = "\n".join(line.lower() for line in clean_lines)
+        if not hosts:
+            if clean_lines:
+                for line in clean_lines:
+                    print(f"{Colors.CYAN}{line}{Colors.NC}")
+            if "not connected" in lower_text or "wifi_connect" in lower_text:
+                print(f"{Colors.YELLOW}[!] Device is not connected to WiFi. Run wifi_connect first.{Colors.NC}")
+            else:
+                print(f"{Colors.YELLOW}[!] No hosts discovered on local network{Colors.NC}")
+            print()
+            input("Press Enter to continue...")
+            return
+
+        host_lines = [
+            f"{Colors.WHITE}#   IP Address        MAC Address{Colors.NC}",
+            "",
+        ]
+        for idx, (ip, mac) in enumerate(hosts, start=1):
+            host_lines.append(f"{Colors.GREEN}{idx:<3}{Colors.NC} {ip:<16} {Colors.GRAY}{mac}{Colors.NC}")
+        UI.print_compact_box(
+            "DISCOVERED HOSTS",
+            host_lines,
+            Colors.CYAN,
+            width=max(40, min(get_terminal_width() - 4, 110))
+        )
+
+        try:
+            target_choice = input("Select host number to ban (0 to cancel): ").strip()
+        except EOFError:
+            return
+
+        if target_choice in ['', '0']:
+            print(f"{Colors.YELLOW}[!] ARP attack cancelled{Colors.NC}")
+            time.sleep(1)
+            return
+
+        if not target_choice.isdigit():
+            print(f"{Colors.RED}[!] Invalid host number{Colors.NC}")
+            time.sleep(1)
+            return
+
+        target_index = int(target_choice)
+        if target_index < 1 or target_index > len(hosts):
+            print(f"{Colors.RED}[!] Host number out of range{Colors.NC}")
+            time.sleep(1)
+            return
+
+        target_ip, target_mac = hosts[target_index - 1]
+        try:
+            confirm = input(f"Start ARP ban on {target_ip} ({target_mac})? [y/N]: ").strip().lower()
+        except EOFError:
+            return
+
+        if confirm not in ['y', 'yes']:
+            print(f"{Colors.YELLOW}[!] ARP attack cancelled{Colors.NC}")
+            time.sleep(1)
+            return
+
+        print(f"{Colors.YELLOW}[*] Sending: arp_ban {target_mac} {target_ip}{Colors.NC}")
+        self.serial_mgr.clear_input()
+        self.serial_mgr.send_command(f"arp_ban {target_mac} {target_ip}")
+        time.sleep(0.5)
+        response = self.serial_mgr.read_until_silence(max_wait=5, idle_timeout=0.8)
+
+        for line in response:
+            if line and not line.startswith(">"):
+                print(f"{Colors.CYAN}{line}{Colors.NC}")
+
+        lower_resp = "\n".join(line.lower() for line in response)
+        fail_markers = ("usage:", "not connected", "failed", "error", "invalid", "unknown command")
+        has_failure = any(marker in lower_resp for marker in fail_markers)
+
+        if has_failure:
+            self.arp_running = False
+            print(f"{Colors.YELLOW}[!] ARP attack was not started{Colors.NC}")
+        else:
+            self.arp_running = True
+            print(f"{Colors.GREEN}[+] ARP attack is running{Colors.NC}")
+            print(f"{Colors.GRAY}Use 'Stop ALL actions' to stop it.{Colors.NC}")
+
+        print()
+        input("Press Enter to continue...")
+
+    def start_mitm_attack(self) -> None:
+        """Start MITM mode via PCAP net capture."""
+        clear_screen()
+        UI.print_banner(self.device, self.attack_running, self.blackout_running,
+                       self.sniffer_running, self.sae_overflow_running,
+                       self.handshake_running, self.portal_running,
+                       self.evil_twin_running)
+        UI.print_compact_box(
+            "MITM ATTACK",
+            [
+                f"{Colors.YELLOW}Starts MITM in net mode via: start_pcap net{Colors.NC}",
+                f"{Colors.GRAY}Requires active WiFi STA connection (wifi_connect).{Colors.NC}",
+            ],
+            Colors.CYAN,
+            width=max(40, min(get_terminal_width() - 4, 110))
+        )
+
+        try:
+            confirm = input("Start MITM attack now? [y/N]: ").strip().lower()
+        except EOFError:
+            return
+
+        if confirm not in ['y', 'yes']:
+            print(f"{Colors.YELLOW}[!] MITM attack cancelled{Colors.NC}")
+            time.sleep(1)
+            return
+
+        print(f"{Colors.YELLOW}[*] Sending: start_pcap net{Colors.NC}")
+        self.serial_mgr.clear_input()
+        self.serial_mgr.send_command("start_pcap net")
+        time.sleep(0.6)
+        lines = self.serial_mgr.read_until_silence(max_wait=8, idle_timeout=1.0)
+
+        for line in lines:
+            if line and not line.startswith(">"):
+                print(f"{Colors.CYAN}{line}{Colors.NC}")
+
+        lower_text = "\n".join(line.lower() for line in lines)
+        fail_markers = ("usage:", "not connected", "failed", "error", "invalid", "unknown command")
+        has_failure = any(marker in lower_text for marker in fail_markers)
+        has_success = "pcap net capture started" in lower_text
+
+        if has_success or (lines and not has_failure):
+            self.mitm_running = True
+            print(f"{Colors.GREEN}[+] MITM attack is running{Colors.NC}")
+            print(f"{Colors.GRAY}Use 'Stop ALL actions' to stop it.{Colors.NC}")
+        else:
+            self.mitm_running = False
+            print(f"{Colors.YELLOW}[!] MITM attack was not started{Colors.NC}")
+
+        print()
+        input("Press Enter to continue...")
+
     def run_gps_module_command(self, command: str) -> None:
         """Send GPS module command and print response."""
         print(f"{Colors.YELLOW}[*] Sending: {command}{Colors.NC}")
@@ -3064,7 +3272,7 @@ class JanOS:
                        self.evil_twin_running)
         print()
         
-        if not self.attack_running and not self.blackout_running and not self.sniffer_running and not self.sae_overflow_running and not self.handshake_running and not self.portal_running and not self.evil_twin_running and not self.wardrive_running and not self.beacon_spam_running:
+        if not self.attack_running and not self.blackout_running and not self.sniffer_running and not self.sae_overflow_running and not self.handshake_running and not self.portal_running and not self.evil_twin_running and not self.wardrive_running and not self.beacon_spam_running and not self.arp_running and not self.mitm_running:
             print(f"{Colors.YELLOW}[!] No attacks are currently running{Colors.NC}")
             print()
             input("Press Enter to continue...")
@@ -3128,6 +3336,16 @@ class JanOS:
             print(f"{Colors.YELLOW}    Stopping beacon spam...{Colors.NC}")
             self.serial_mgr.send_command("stop")
             self.beacon_spam_running = False
+
+        if self.arp_running:
+            print(f"{Colors.YELLOW}    Stopping ARP attack...{Colors.NC}")
+            self.serial_mgr.send_command("stop")
+            self.arp_running = False
+
+        if self.mitm_running:
+            print(f"{Colors.YELLOW}    Stopping MITM attack...{Colors.NC}")
+            self.serial_mgr.send_command("stop")
+            self.mitm_running = False
         
         print(f"{Colors.GREEN}[+] All attacks stopped{Colors.NC}")
         print()
@@ -3304,7 +3522,8 @@ class JanOS:
                                      self.attack_running, self.blackout_running, 
                                      self.sae_overflow_running, self.handshake_running,
                                      self.portal_running, self.evil_twin_running,
-                                     self.beacon_spam_running)
+                                     self.beacon_spam_running, self.arp_running,
+                                     self.mitm_running)
                 
                 choice = input("Select option: ").strip()
                 
@@ -3323,6 +3542,10 @@ class JanOS:
                 elif choice == '7':
                     self.beacon_spam_menu()
                 elif choice == '8':
+                    self.start_arp_attack()
+                elif choice == '9':
+                    self.start_mitm_attack()
+                elif choice == '10':
                     self.stop_all_attacks()
                 elif choice == '0':
                     return  # Back to main menu
@@ -3489,7 +3712,11 @@ class JanOS:
                         print(f"{Colors.CYAN}[+] Last log: {self.wardrive_last_file}{Colors.NC}")
                 if self.beacon_spam_running:
                     print(f"{Colors.YELLOW}[!] Beacon spam is RUNNING{Colors.NC}")
-                if not self.attack_running and not self.blackout_running and not self.sniffer_running and not self.sae_overflow_running and not self.handshake_running and not self.portal_running and not self.evil_twin_running and not self.wardrive_running and not self.beacon_spam_running:
+                if self.arp_running:
+                    print(f"{Colors.YELLOW}[!] ARP attack is RUNNING{Colors.NC}")
+                if self.mitm_running:
+                    print(f"{Colors.CYAN}[!] MITM attack is RUNNING{Colors.NC}")
+                if not self.attack_running and not self.blackout_running and not self.sniffer_running and not self.sae_overflow_running and not self.handshake_running and not self.portal_running and not self.evil_twin_running and not self.wardrive_running and not self.beacon_spam_running and not self.arp_running and not self.mitm_running:
                     print(f"{Colors.GRAY}[-] No attacks running{Colors.NC}")
                 
                 print()
@@ -3507,7 +3734,7 @@ class JanOS:
                 elif choice == '5':
                     self.sd_data_menu()
                 elif choice in ['0', 'q', 'Q']:
-                    if self.attack_running or self.blackout_running or self.sniffer_running or self.sae_overflow_running or self.handshake_running or self.portal_running or self.evil_twin_running or self.wardrive_running or self.beacon_spam_running:
+                    if self.attack_running or self.blackout_running or self.sniffer_running or self.sae_overflow_running or self.handshake_running or self.portal_running or self.evil_twin_running or self.wardrive_running or self.beacon_spam_running or self.arp_running or self.mitm_running:
                         print()
                         try:
                             stop_confirm = input("Actions are running. Stop before exit? [Y/n]: ").strip().lower()
@@ -3541,7 +3768,7 @@ class JanOS:
                     
             except KeyboardInterrupt:
                 print(f"\n{Colors.YELLOW}[*] Interrupted{Colors.NC}")
-                if self.attack_running or self.blackout_running or self.sniffer_running or self.sae_overflow_running or self.handshake_running or self.portal_running or self.evil_twin_running or self.wardrive_running or self.beacon_spam_running:
+                if self.attack_running or self.blackout_running or self.sniffer_running or self.sae_overflow_running or self.handshake_running or self.portal_running or self.evil_twin_running or self.wardrive_running or self.beacon_spam_running or self.arp_running or self.mitm_running:
                     self.serial_mgr.send_command("stop")
                     if self.sniffer_running:
                         self.stop_sniffer_event.set()
@@ -3554,7 +3781,7 @@ class JanOS:
                 break
             except EOFError:
                 print(f"\n{Colors.YELLOW}[*] Exiting{Colors.NC}")
-                if self.attack_running or self.blackout_running or self.sniffer_running or self.sae_overflow_running or self.handshake_running or self.portal_running or self.evil_twin_running or self.wardrive_running or self.beacon_spam_running:
+                if self.attack_running or self.blackout_running or self.sniffer_running or self.sae_overflow_running or self.handshake_running or self.portal_running or self.evil_twin_running or self.wardrive_running or self.beacon_spam_running or self.arp_running or self.mitm_running:
                     self.serial_mgr.send_command("stop")
                     if self.sniffer_running:
                         self.stop_sniffer_event.set()
@@ -3581,7 +3808,7 @@ class JanOS:
         """Cleanup resources."""
         print()
         print(f"{Colors.YELLOW}[*] Cleaning up...{Colors.NC}")
-        if self.attack_running or self.blackout_running or self.sniffer_running or self.sae_overflow_running or self.handshake_running or self.portal_running or self.evil_twin_running or self.wardrive_running or self.beacon_spam_running:
+        if self.attack_running or self.blackout_running or self.sniffer_running or self.sae_overflow_running or self.handshake_running or self.portal_running or self.evil_twin_running or self.wardrive_running or self.beacon_spam_running or self.arp_running or self.mitm_running:
             self.serial_mgr.send_command("stop")
             if self.sniffer_running:
                 self.stop_sniffer_event.set()
@@ -3623,7 +3850,7 @@ def main():
     import signal
     def signal_handler(sig, frame):
         print(f"\n{Colors.YELLOW}[*] Received interrupt signal{Colors.NC}")
-        if app.attack_running or app.blackout_running or app.sniffer_running or app.sae_overflow_running or app.handshake_running or app.portal_running or app.evil_twin_running or app.wardrive_running or app.beacon_spam_running:
+        if app.attack_running or app.blackout_running or app.sniffer_running or app.sae_overflow_running or app.handshake_running or app.portal_running or app.evil_twin_running or app.wardrive_running or app.beacon_spam_running or app.arp_running or app.mitm_running:
             app.serial_mgr.send_command("stop")
             if app.sniffer_running:
                 app.stop_sniffer_event.set()

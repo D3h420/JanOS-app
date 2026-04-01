@@ -120,6 +120,30 @@ TP-Link_F5F8 (64:57:25:BB:90:6A)
 - **Parse**: Extract `#N` for counter, `AP=`, `STA=`, `Ch=`, `RSSI=` fields.
 - **Stop**: Send `stop`.
 
+### `start_pcap`
+- **Syntax**: `start_pcap [radio|net]`
+- **Description**: Captures WiFi traffic to PCAP file on SD card. Default mode: `radio`.
+  - **Radio mode** (linktype 105): Promiscuous mode capturing all management/data/control frames on all channels.
+  - **Net mode** (linktype 1): Requires WiFi STA connection. Captures outbound packets and performs ARP spoofing MITM on detected hosts.
+- **Example**: `start_pcap radio` or `start_pcap net`
+- **Output**:
+```
+PCAP radio capture started -> /sdcard/lab/pcaps/sniff_1.pcap
+```
+- **On stop**:
+```
+PCAP saved: /sdcard/lab/pcaps/sniff_1.pcap (1530 frames, 2 drops)
+```
+- **Error outputs**:
+  - `"Usage: start_pcap radio|net"` (invalid argument)
+  - `"Not connected to WiFi. Use 'wifi_connect' first."` (net mode, not connected)
+  - `"Failed to initialize SD card: <error>"` (SD init fail)
+  - `"Failed to create /sdcard/lab/pcaps directory"` (directory fail)
+  - `"Failed to open <filepath> for writing"` (file fail)
+- **Prerequisites**: SD card. For net mode: WiFi connected via `wifi_connect`.
+- **Stop**: Send `stop`.
+- **Notes**: Files are saved at `/sdcard/lab/pcaps/sniff_N.pcap` (N auto-increments).
+
 ---
 
 ## Attacks
@@ -181,8 +205,34 @@ Handshake #1 captured!
 
 ### `start_beacon_spam`
 - **Syntax**: `start_beacon_spam "SSID1" "SSID2" ...`
-- **Description**: Broadcasts fake beacon frames with specified SSIDs.
+- **Description**: Broadcasts fake beacon frames with specified SSIDs. Sets WiFi to APSTA mode and iterates through 2.4GHz channels (1-11), sending beacons for each SSID per channel. Max 32 SSIDs, each 1-32 characters.
 - **Example**: `start_beacon_spam "Free WiFi" "Starbucks" "Airport"`
+- **Output**:
+```
+Starting beacon spam with 3 SSIDs:
+  1: Free WiFi
+  2: Starbucks
+  3: Airport
+WiFi initialized for beacon spam...
+Beacon spam started. Use 'stop' to end.
+```
+- **Error outputs**:
+  - `"Usage: start_beacon_spam \"SSID1\" \"SSID2\" ..."` (no arguments)
+  - `"Beacon spam already running. Use 'stop' first."` (already active)
+  - `"Warning: SSID N invalid length (M), skipping"` (SSID too long/empty)
+  - `"No valid SSIDs provided"` (all SSIDs invalid)
+- **Stop**: Send `stop`.
+
+### `start_beacon_spam_ssids`
+- **Syntax**: `start_beacon_spam_ssids`
+- **Description**: Same as `start_beacon_spam` but loads SSIDs from `/sdcard/lab/ssids.txt` (one SSID per line). Max 32 SSIDs loaded.
+- **Prerequisite**: SD card with `/sdcard/lab/ssids.txt` containing SSIDs (one per line). Manage the file with `add_ssid`, `remove_ssid`, `list_ssids`.
+- **Output**: Same as `start_beacon_spam` after loading SSIDs from file.
+- **Error outputs**:
+  - `"Beacon spam already running. Use 'stop' first."` (already active)
+  - `"Failed to initialize SD card: <error>"` (SD init fail)
+  - `"ssids.txt not found on SD card."` (file missing)
+  - `"ssids.txt is empty - no SSIDs to broadcast"` (file empty)
 - **Stop**: Send `stop`.
 
 ### `start_karma`
@@ -440,9 +490,50 @@ Found 6 file(s) in /sdcard/lab/handshakes
 - **Description**: Deletes a file on SD card.
 - **Example**: `file_delete lab/handshakes/sample.pcap`
 
-### `list_ssid`
-- **Syntax**: `list_ssid`
-- **Description**: Lists SSIDs from `/sdcard/lab/ssid.txt`.
+### `list_ssids`
+- **Syntax**: `list_ssids`
+- **Description**: Lists SSIDs from `/sdcard/lab/ssids.txt` with 1-based index.
+- **Output**:
+```
+1 WiFi1
+2 TestNet
+3 FreeHotspot
+```
+- **Error outputs**:
+  - `"Failed to initialize SD card: <error>"` (SD init fail)
+  - `"ssids.txt not found on SD card."` (file missing)
+  - `"ssids.txt is empty."` (file empty)
+- **Notes**: No explicit completion marker — output ends after last indexed line.
+
+### `add_ssid`
+- **Syntax**: `add_ssid <SSID>`
+- **Description**: Appends a new SSID to `/sdcard/lab/ssids.txt`.
+- **Example**: `add_ssid FreeWiFi`
+- **Output**: `"Added SSID: FreeWiFi"`
+- **Error outputs**:
+  - `"Usage: add_ssid <SSID>"` (no argument)
+  - `"SSID length must be 1-32 characters"` (length invalid)
+  - `"Failed to initialize SD card: <error>"` (SD init fail)
+  - `"Failed to open ssids.txt for writing"` (file open fail)
+- **Notes**: SSID must be 1-32 characters. File is created if it doesn't exist.
+
+### `remove_ssid`
+- **Syntax**: `remove_ssid <index>`
+- **Description**: Removes SSID at given 1-based index from `/sdcard/lab/ssids.txt`. Use `list_ssids` to see indices.
+- **Example**: `remove_ssid 2`
+- **Output**:
+```
+Removing SSID 2: TestNet
+SSID removed. 2 SSIDs remaining.
+```
+- **Error outputs**:
+  - `"Usage: remove_ssid <index>"` (no argument)
+  - `"Index must be >= 1"` (invalid index)
+  - `"Failed to initialize SD card: <error>"` (SD init fail)
+  - `"ssids.txt not found on SD card."` (file missing)
+  - `"Index N out of range (1-M)"` (index exceeds count)
+  - `"Failed to open ssids.txt for writing"` (file write fail)
+- **Notes**: Remaining SSIDs are reindexed after removal.
 
 ---
 
@@ -597,6 +688,12 @@ Found 6 file(s) in /sdcard/lab/handshakes
 ### `download`
 - **Syntax**: `download`
 - **Description**: Reboots into ROM download (UART flashing) mode.
+
+### `version`
+- **Syntax**: `version`
+- **Description**: Prints the current JanOS firmware version.
+- **Output**: `"JanOS version: X.Y.Z"`
+- **Notes**: Use to check which firmware version is running on the device.
 
 ### `help`
 - **Syntax**: `help` or `help <command>`
