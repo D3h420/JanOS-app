@@ -852,6 +852,8 @@ class JanOS:
         self.beacon_spam_running = False
         self.arp_running = False
         self.mitm_running = False
+        self.wifi_connected = False
+        self.connected_ssid = ""
         self.sniffer_packets = 0
         self.sniffer_thread = None
         self.stop_sniffer_event = threading.Event()
@@ -2765,8 +2767,299 @@ class JanOS:
 
         return hosts
 
+    def _scan_networks_for_connect(self) -> List[Dict[str, str]]:
+        """Scan nearby WiFi networks and return parsed entries."""
+        print(f"{Colors.YELLOW}[*] Scanning nearby WiFi networks...{Colors.NC}")
+        print(f"{Colors.GRAY}    This may take up to {SCAN_TIMEOUT} seconds{Colors.NC}")
+        print()
+
+        self.serial_mgr.clear_input()
+        self.serial_mgr.send_command("scan_networks")
+
+        start_time = time.time()
+        complete = False
+        networks_by_index: Dict[str, Dict[str, str]] = {}
+
+        while time.time() - start_time < SCAN_TIMEOUT:
+            elapsed = int(time.time() - start_time)
+            print(f"\r    Elapsed: {elapsed}s / {SCAN_TIMEOUT}s  ", end="", flush=True)
+            lines = self.serial_mgr.read_until_silence(max_wait=1.0, idle_timeout=0.4)
+
+            for line in lines:
+                if line.startswith('"'):
+                    parsed = self.network_mgr.parse_network_line(line)
+                    if parsed:
+                        key = parsed.get('index', '').strip() or str(len(networks_by_index) + 1)
+                        networks_by_index[key] = parsed
+
+                if "Scan results printed" in line:
+                    complete = True
+
+            if complete:
+                break
+            time.sleep(0.1)
+
+        print()
+
+        if not networks_by_index:
+            # Fallback when scan output was delayed but results are already cached on ESP.
+            print(f"{Colors.YELLOW}[*] No direct scan output, requesting cached results...{Colors.NC}")
+            self.serial_mgr.clear_input()
+            self.serial_mgr.send_command("show_scan_results")
+            time.sleep(0.5)
+            lines = self.serial_mgr.read_until_silence(max_wait=6, idle_timeout=1.0)
+            for line in lines:
+                if line.startswith('"'):
+                    parsed = self.network_mgr.parse_network_line(line)
+                    if parsed:
+                        key = parsed.get('index', '').strip() or str(len(networks_by_index) + 1)
+                        networks_by_index[key] = parsed
+
+        networks = list(networks_by_index.values())
+
+        def _sort_key(network: Dict[str, str]) -> Tuple[int, int]:
+            index = network.get('index', '').strip()
+            if index.isdigit():
+                return (0, int(index))
+            return (1, 9999)
+
+        networks.sort(key=_sort_key)
+
+        # Keep global scan cache in sync for other menus.
+        if networks:
+            self.network_mgr.networks = [dict(network) for network in networks]
+            self.network_mgr.network_count = len(networks)
+            self.network_mgr.scan_done = True
+
+        return networks
+
+    def _select_network_for_connect(self, networks: List[Dict[str, str]]) -> Optional[Dict[str, str]]:
+        """Show scanned networks and return selected entry."""
+        lines = [
+            f"{Colors.WHITE}#   SSID                     CH  RSSI  Auth{Colors.NC}",
+            "",
+        ]
+
+        for position, network in enumerate(networks[:30], start=1):
+            index = network.get('index', str(position))
+            ssid = network.get('ssid', '<hidden>')
+            channel = network.get('channel', '?')
+            auth = network.get('auth', '?')
+            rssi = network.get('rssi', '?')
+
+            if len(ssid) > 24:
+                ssid = ssid[:21] + "..."
+            if len(auth) > 14:
+                auth = auth[:12] + ".."
+
+            rssi_color = self.network_mgr.get_rssi_color(rssi)
+            lines.append(
+                f"{Colors.GREEN}{index:<3}{Colors.NC} "
+                f"{ssid:<24} {channel:<3} {rssi_color}{rssi:<5}{Colors.NC} {auth:<14}"
+            )
+
+        if len(networks) > 30:
+            lines.append(f"{Colors.GRAY}... and {len(networks) - 30} more networks{Colors.NC}")
+
+        UI.print_compact_box(
+            "SELECT WIFI NETWORK",
+            lines,
+            Colors.CYAN,
+            width=max(40, min(get_terminal_width() - 4, 110))
+        )
+
+        try:
+            selection = input("Choose network number (0 to cancel): ").strip()
+        except EOFError:
+            return None
+
+        if not selection or selection == '0':
+            return None
+
+        for network in networks:
+            if network.get('index', '').strip() == selection:
+                return network
+
+        # Fallback by position if ESP index does not match visible order.
+        if selection.isdigit():
+            position = int(selection)
+            if 1 <= position <= len(networks):
+                return networks[position - 1]
+
+        print(f"{Colors.RED}[!] Invalid network selection{Colors.NC}")
+        time.sleep(1)
+        return None
+
+    def _connect_wifi_sta(self, ssid: str, password: str) -> bool:
+        """Connect device to WiFi STA mode."""
+        clean_ssid = ssid.replace('"', '').strip()
+        clean_password = password.replace('"', '')
+        if not clean_ssid:
+            print(f"{Colors.RED}[!] SSID cannot be empty{Colors.NC}")
+            time.sleep(1)
+            return False
+
+        command_variants = [f'wifi_connect "{clean_ssid}" "{clean_password}"']
+        if " " not in clean_ssid and " " not in clean_password:
+            if clean_password:
+                command_variants.append(f"wifi_connect {clean_ssid} {clean_password}")
+            else:
+                command_variants.append(f'wifi_connect {clean_ssid} ""')
+
+        for attempt_index, command in enumerate(command_variants, start=1):
+            print(f"{Colors.YELLOW}[*] Sending: {command}{Colors.NC}")
+            self.serial_mgr.clear_input()
+            self.serial_mgr.send_command(command)
+            time.sleep(0.6)
+            lines = self.serial_mgr.read_until_silence(max_wait=14, idle_timeout=1.2)
+            clean_lines = [line for line in lines if line and not line.startswith(">")]
+
+            for line in clean_lines:
+                print(f"{Colors.CYAN}{line}{Colors.NC}")
+
+            lower_text = "\n".join(line.lower() for line in clean_lines)
+            has_success = (
+                "success" in lower_text
+                or "connected to ssid" in lower_text
+                or "wi-fi: connected" in lower_text
+                or "wifi: connected" in lower_text
+            )
+            has_failure = any(
+                marker in lower_text
+                for marker in (
+                    "failed",
+                    "error",
+                    "usage:",
+                    "invalid",
+                    "wrong password",
+                    "auth fail",
+                    "no ap found",
+                )
+            )
+
+            if has_success and not has_failure:
+                self.wifi_connected = True
+                self.connected_ssid = clean_ssid
+                print(f"{Colors.GREEN}[+] Connected to WiFi: {clean_ssid}{Colors.NC}")
+                return True
+
+            if attempt_index < len(command_variants):
+                print(f"{Colors.YELLOW}[*] Retrying with alternate command format...{Colors.NC}")
+
+        self.wifi_connected = False
+        self.connected_ssid = ""
+        print(f"{Colors.RED}[!] WiFi connection failed{Colors.NC}")
+        return False
+
+    def _prepare_inside_network_access(self, attack_name: str) -> bool:
+        """Ensure WiFi connection before ARP/MITM attack."""
+        while True:
+            clear_screen()
+            UI.print_banner(self.device, self.attack_running, self.blackout_running,
+                           self.sniffer_running, self.sae_overflow_running,
+                           self.handshake_running, self.portal_running,
+                           self.evil_twin_running)
+
+            setup_lines = [
+                f"{Colors.YELLOW}{attack_name} requires active WiFi STA connection.{Colors.NC}",
+                f"{Colors.GRAY}Choose how to connect before starting the attack.{Colors.NC}",
+                "",
+                f"{Colors.GREEN}1){Colors.NC} Scan nearby networks and choose target",
+                f"{Colors.GREEN}2){Colors.NC} Enter SSID and password manually",
+                "",
+                f"{Colors.GRAY}0){Colors.NC} Cancel",
+            ]
+            if self.wifi_connected and self.connected_ssid:
+                setup_lines.insert(2, f"{Colors.CYAN}Current session SSID: {self.connected_ssid}{Colors.NC}")
+
+            UI.print_compact_box(
+                "INSIDE NETWORK SETUP",
+                setup_lines,
+                Colors.CYAN,
+                width=max(40, min(get_terminal_width() - 4, 110))
+            )
+
+            try:
+                choice = input("Select option: ").strip()
+            except EOFError:
+                return False
+
+            if choice == '0':
+                return False
+
+            if choice == '1':
+                networks = self._scan_networks_for_connect()
+                if not networks:
+                    print(f"{Colors.YELLOW}[!] No networks found. Try manual SSID/password.{Colors.NC}")
+                    print()
+                    input("Press Enter to continue...")
+                    continue
+
+                selected_network = self._select_network_for_connect(networks)
+                if not selected_network:
+                    continue
+
+                ssid = selected_network.get('ssid', '').strip()
+                auth = selected_network.get('auth', '').strip()
+                if not ssid or ssid == "<hidden>":
+                    print(f"{Colors.YELLOW}[!] Selected network has hidden SSID. Use manual mode.{Colors.NC}")
+                    print()
+                    input("Press Enter to continue...")
+                    continue
+
+                is_open_network = any(token in auth.lower() for token in ("open", "none"))
+                print(f"{Colors.GREEN}[+] Selected SSID: {ssid}{Colors.NC}")
+                if auth:
+                    print(f"{Colors.GRAY}[*] Auth: {auth}{Colors.NC}")
+                try:
+                    if is_open_network:
+                        password = input("Password (Enter for open network): ")
+                    else:
+                        password = input("Password: ")
+                except EOFError:
+                    return False
+
+                if not is_open_network and not password:
+                    print(f"{Colors.YELLOW}[!] Password is required for this network{Colors.NC}")
+                    time.sleep(1)
+                    continue
+
+                if self._connect_wifi_sta(ssid, password):
+                    return True
+
+                print()
+                input("Press Enter to retry setup...")
+                continue
+
+            if choice == '2':
+                try:
+                    ssid = input("SSID: ").strip()
+                    password = input("Password (leave empty for open network): ")
+                except EOFError:
+                    return False
+
+                if not ssid:
+                    print(f"{Colors.RED}[!] SSID cannot be empty{Colors.NC}")
+                    time.sleep(1)
+                    continue
+
+                if self._connect_wifi_sta(ssid, password):
+                    return True
+
+                print()
+                input("Press Enter to retry setup...")
+                continue
+
+            print(f"{Colors.RED}Invalid option{Colors.NC}")
+            time.sleep(1)
+
     def start_arp_attack(self) -> None:
         """Start ARP poisoning attack against selected host."""
+        if not self._prepare_inside_network_access("ARP"):
+            print(f"{Colors.YELLOW}[!] ARP setup cancelled{Colors.NC}")
+            time.sleep(1)
+            return
+
         clear_screen()
         UI.print_banner(self.device, self.attack_running, self.blackout_running,
                        self.sniffer_running, self.sae_overflow_running,
@@ -2777,20 +3070,11 @@ class JanOS:
             [
                 f"{Colors.YELLOW}Inside-network attack (requires WiFi STA connection).{Colors.NC}",
                 f"{Colors.GRAY}Workflow: list_hosts -> choose target -> arp_ban.{Colors.NC}",
+                f"{Colors.CYAN}Connected SSID: {self.connected_ssid or 'unknown'}{Colors.NC}",
             ],
             Colors.CYAN,
             width=max(40, min(get_terminal_width() - 4, 110))
         )
-
-        try:
-            confirm = input("Scan hosts and start ARP attack? [y/N]: ").strip().lower()
-        except EOFError:
-            return
-
-        if confirm not in ['y', 'yes']:
-            print(f"{Colors.YELLOW}[!] ARP attack cancelled{Colors.NC}")
-            time.sleep(1)
-            return
 
         print(f"{Colors.YELLOW}[*] Scanning local network hosts...{Colors.NC}")
         self.serial_mgr.clear_input()
@@ -2806,7 +3090,9 @@ class JanOS:
                 for line in clean_lines:
                     print(f"{Colors.CYAN}{line}{Colors.NC}")
             if "not connected" in lower_text or "wifi_connect" in lower_text:
-                print(f"{Colors.YELLOW}[!] Device is not connected to WiFi. Run wifi_connect first.{Colors.NC}")
+                self.wifi_connected = False
+                self.connected_ssid = ""
+                print(f"{Colors.YELLOW}[!] Device is not connected to WiFi. Run setup again.{Colors.NC}")
             else:
                 print(f"{Colors.YELLOW}[!] No hosts discovered on local network{Colors.NC}")
             print()
@@ -2885,6 +3171,11 @@ class JanOS:
 
     def start_mitm_attack(self) -> None:
         """Start MITM mode via PCAP net capture."""
+        if not self._prepare_inside_network_access("MITM"):
+            print(f"{Colors.YELLOW}[!] MITM setup cancelled{Colors.NC}")
+            time.sleep(1)
+            return
+
         clear_screen()
         UI.print_banner(self.device, self.attack_running, self.blackout_running,
                        self.sniffer_running, self.sae_overflow_running,
@@ -2895,6 +3186,7 @@ class JanOS:
             [
                 f"{Colors.YELLOW}Starts MITM in net mode via: start_pcap net{Colors.NC}",
                 f"{Colors.GRAY}Requires active WiFi STA connection (wifi_connect).{Colors.NC}",
+                f"{Colors.CYAN}Connected SSID: {self.connected_ssid or 'unknown'}{Colors.NC}",
             ],
             Colors.CYAN,
             width=max(40, min(get_terminal_width() - 4, 110))
@@ -2931,6 +3223,9 @@ class JanOS:
             print(f"{Colors.GRAY}Use 'Stop ALL actions' to stop it.{Colors.NC}")
         else:
             self.mitm_running = False
+            if "not connected" in lower_text or "wifi_connect" in lower_text:
+                self.wifi_connected = False
+                self.connected_ssid = ""
             print(f"{Colors.YELLOW}[!] MITM attack was not started{Colors.NC}")
 
         print()
