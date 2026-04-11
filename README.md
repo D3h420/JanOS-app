@@ -5,7 +5,7 @@ A terminal-based Python controller for JanOS firmware over UART ⚡
 
 ## 🧭 What This Script Does
 
-`JanOS_app.py` connects to a JanOS device (for example ESP32-C5) through a serial port and provides an interactive menu:
+`JanOS_app.py` connects to a projectZero (aka JanOS) device  through a serial port and provides an interactive menu:
 
 - `Scan`
 - `Sniffer`
