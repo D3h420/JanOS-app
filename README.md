@@ -1,25 +1,96 @@
-# JanOS-app
+# JanOS App
 ![IMG_7409](https://github.com/user-attachments/assets/6d367f35-297a-44ec-8572-a710b3c725ee)
 
-A simple Python script for controlling and interacting with **[JanOS](https://github.com/C5Lab/projectZero)**.
+Terminalowa aplikacja w Pythonie do sterowania firmware JanOS po UART.
 
-## What is this?
+## Co robi skrypt
 
-This is a simple **Python-based control script** designed to communicate with and control [JanOS software](https://github.com/C5Lab/projectZero).
-It acts as a bridge between JanOS and external devices, enabling automation and simplified device management.
+`JanOS_app.py` łączy się z urządzeniem JanOS (np. ESP32-C5) przez port szeregowy i udostępnia interaktywne menu:
 
-## How to use:
-1. `git clone https://github.com/D3h420/JanOS-app/`
-2. `cd JanOS-app`
-3. `sudo chmod +x JanOS-app.py`
-4. `sudo python3 JanOS-app.py /dev/ttyUSB0`
-   
-## Status 🚧 
+- `Scan`
+- `Sniffer`
+- `Attacks`
+- `Wardrive`
+- `SD data`
 
-<img width="500" height="459" alt="Zrzut ekranu 2026-01-5 o 13 22 36" src="https://github.com/user-attachments/assets/dd496843-ff01-463c-8882-67ae65c92ead" />
+Skrypt wysyła komendy tekstowe do JanOS po UART (115200), a następnie parsuje odpowiedzi i pokazuje status w czasie rzeczywistym.
 
-🚧 Work in progress  
-More features, documentation, and supported boards will be added over time.
+## Aktualne funkcje
 
-## JanOS_dev status
-`JanOS_dev_0.0.1.py` is under active development and currently unstable.
+- skanowanie WiFi i wybór sieci (`scan_networks`, `show_scan_results`, `select_networks`)
+- sniffer + podgląd wyników/probe requests
+ataki global WiFi:
+- `Deauth`
+- `Blackout`
+- `WPA3 SAE Overflow`
+- `Handshaker`
+- `Portal`
+- `Evil Twin`
+- `Beacon spam` (+ zarządzanie `ssids.txt`)
+ataki inside network:
+- `ARP` (`list_hosts` + `arp_ban`)
+- `MITM` (`start_pcap net`)
+- `Stop ALL actions`
+- wardrive + GPS setup
+SD data:
+- `htmls`
+- `evil twin & portal` (`show_pass`)
+- `warlogs`
+- `handshakes`
+- `pcap` (`/sdcard/lab/pcaps`, tylko pliki `.pcap`)
+
+## Wymagania
+
+- Python 3.10+
+- `pyserial`
+- dostęp do portu szeregowego urządzenia JanOS (`/dev/ttyUSB0`, `/dev/cu.usbserial-*`, itp.)
+
+Instalacja zależności:
+
+```bash
+pip3 install pyserial
+```
+
+## Uruchamianie
+
+```bash
+git clone https://github.com/D3h420/JanOS-app.git
+cd JanOS-app
+python3 JanOS_app.py
+```
+
+Lub bezpośrednio z portem:
+
+```bash
+python3 JanOS_app.py /dev/ttyUSB0
+```
+
+## Uwaga o ARP/MITM i SSH
+
+ARP/MITM wymagają aktywnego połączenia WiFi po stronie ESP.
+
+W `INSIDE NETWORK SETUP` są opcje:
+
+- `1) Scan nearby networks and choose target`
+- `2) Enter SSID and password manually`
+- `3) Skip connect (ESP already connected)`
+
+Dodatkowo skrypt pyta o sync przez `stop` przed setupem ARP/MITM, żeby wyczyścić aktywne akcje na ESP.
+
+Jeżeli pracujesz przez SSH do hosta, ataki sieciowe mogą przerwać sesję (to efekt działania JanOS na sieć, nie lokalnego `nmcli/ifconfig` w skrypcie).
+
+## Struktura danych na SD (JanOS)
+
+- `/sdcard/lab/htmls`
+- `/sdcard/lab/wardrives`
+- `/sdcard/lab/handshakes`
+- `/sdcard/lab/pcaps`
+- `/sdcard/lab/ssids.txt`
+
+## Status
+
+Projekt jest aktywnie rozwijany. README odzwierciedla bieżący stan `JanOS_app.py`.
+
+## Disclaimer
+
+Używaj wyłącznie w legalnym środowisku testowym i na infrastrukturze, do której masz uprawnienia.
