@@ -1,16 +1,11 @@
 # 🚀 JanOS App
 <img width="1536" height="1024" alt="LAB5-projectZero" src="https://github.com/user-attachments/assets/32b9737d-cada-4d05-b972-6643e36cc2bc" />
 
-A terminal-based Python controller for JanOS firmware over UART ⚡
-
-## 🔗 Important Links
-
-- [projectZero](https://github.com/C5Lab/projectZero)
-- [Discord community (LAB5)](https://discord.gg/57wmJzzR8C)
+A terminal-based Python controller for [projectZero (JanOS)](https://github.com/C5Lab/projectZero) firmware over UART ⚡, built for the [LAB5 Discord community](https://discord.gg/57wmJzzR8C).
 
 ## 🧭 What This Script Does
 
-`JanOS_app.py` connects to a projectZero (aka JanOS) device  through a serial port and provides an interactive menu:
+`JanOS_app.py` connects to a [projectZero (aka JanOS)](https://github.com/C5Lab/projectZero) device through a serial port and provides an interactive menu:
 
 - `Scan`
 - `Sniffer`
