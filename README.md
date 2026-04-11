@@ -35,8 +35,8 @@ The script sends text commands to projectZero over UART (115200), parses respons
 - `Stop ALL actions`
 
 🧩 Additional modules:
-- wardrive + GPS setup
-- SD data browser:
+- `wardrive + GPS setup`
+- `SD data browser`
 - `htmls`
 - `evil twin & portal` (`show_pass`)
 - `warlogs`
