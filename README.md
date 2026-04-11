@@ -3,6 +3,11 @@
 
 A terminal-based Python controller for JanOS firmware over UART ⚡
 
+## 🔗 Important Links
+
+- [projectZero](https://github.com/C5Lab/projectZero)
+- [Discord community (LAB5)](https://discord.gg/57wmJzzR8C)
+
 ## 🧭 What This Script Does
 
 `JanOS_app.py` connects to a projectZero (aka JanOS) device  through a serial port and provides an interactive menu:
