@@ -1,6 +1,10 @@
 # 🚀 JanOS App
 <img width="1536" height="1024" alt="LAB5-projectZero" src="https://github.com/user-attachments/assets/32b9737d-cada-4d05-b972-6643e36cc2bc" />
 
+[![Discord](https://img.shields.io/badge/Discord-LAB5-5865F2?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/57wmJzzR8C)
+[![GitHub stars](https://img.shields.io/github/stars/D3h420/JanOS-app?style=for-the-badge)](https://github.com/D3h420/JanOS-app/stargazers)
+[![Last commit](https://img.shields.io/github/last-commit/D3h420/JanOS-app?style=for-the-badge)](https://github.com/D3h420/JanOS-app/commits/main)
+
 A terminal-based Python controller for [projectZero (JanOS)](https://github.com/C5Lab/projectZero) firmware over UART ⚡, built for the [LAB5 Discord community](https://discord.gg/57wmJzzR8C).
 
 ## 🧭 What This Script Does
