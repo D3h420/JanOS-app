@@ -5,7 +5,8 @@
 [![GitHub stars](https://img.shields.io/github/stars/D3h420/JanOS-app?style=for-the-badge)](https://github.com/D3h420/JanOS-app/stargazers)
 [![Last commit](https://img.shields.io/github/last-commit/D3h420/JanOS-app?style=for-the-badge)](https://github.com/D3h420/JanOS-app/commits/main)
 
-A terminal-based Python controller for [projectZero (JanOS)](https://github.com/C5Lab/projectZero) firmware over UART ⚡, built for the [LAB5 Discord community](https://discord.gg/57wmJzzR8C).
+A terminal-based Python controller for [projectZero (JanOS)](https://github.com/C5Lab/projectZero) firmware over UART ⚡
+Check our [LAB5 Discord community](https://discord.gg/57wmJzzR8C).
 
 ## 🧭 What This Script Does
 
