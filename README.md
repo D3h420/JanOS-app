@@ -1,5 +1,5 @@
 # 🚀 JanOS App
-![IMG_7409](https://github.com/user-attachments/assets/6d367f35-297a-44ec-8572-a710b3c725ee)
+<img width="1536" height="1024" alt="LAB5-projectZero" src="https://github.com/user-attachments/assets/32b9737d-cada-4d05-b972-6643e36cc2bc" />
 
 A terminal-based Python controller for JanOS firmware over UART ⚡
 
