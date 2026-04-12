@@ -73,13 +73,21 @@ Or run directly with a device path:
 python3 JanOS_app.py /dev/ttyUSB0
 ```
 
-## 💾 JanOS SD Card Paths
+## 💾 SD Card Files
 
-- `/sdcard/lab/htmls`
-- `/sdcard/lab/wardrives`
-- `/sdcard/lab/handshakes`
-- `/sdcard/lab/pcaps`
-- `/sdcard/lab/ssids.txt`
+All paths below are on the JanOS device SD card (under `/sdcard`):
+
+- `/lab/htmls/` - captive portal HTML templates used by Portal / Evil Twin / Rogue AP flows.
+- `/lab/htmls/*.html` - templates discovered by `list_sd`.
+- `/lab/white.txt` - whitelist BSSIDs (colon or dash separated), respected by Blackout and Sniffer Dog.
+- `/lab/wardrives/wXXXX.log` - WiGLE-compatible wardrive logs, auto-incremented.
+- `/lab/wigle.txt` - WiGLE API credentials loaded on boot (`api_name:api_token`, one line, no quotes).
+- `/lab/wpa-sec.txt` - WPA-SEC API key used for handshake uploads.
+- `/lab/portals.txt` - persistent CSV-like log of captive portal form submissions.
+- `/lab/ssids.txt` - SSID list used by Beacon Spam file mode (`start_beacon_spam_ssids`).
+- `/lab/oui_wifi.bin` - vendor lookup table streamed on demand.
+- `/lab/handshakes/*.pcap` - captured WPA handshake files.
+- `/lab/pcaps/*.pcap` - packet captures from `start_pcap` (radio/net mode, including MITM workflow).
 
 ## 🚧 Status
 
