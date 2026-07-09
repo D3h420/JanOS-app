@@ -49,7 +49,7 @@ The script sends text commands to projectZero over UART (115200), parses respons
 - BLE helpers (`scan_bt`, `scan_airtag`)
 - `SD data browser`
 - `System` (`version`, `board_name`, `sd_status`, `help`, raw command, vendor/display/LED/channel-time controls)
-- `SubGHz` status, RX/TX, analyzer, scanner, weather/TPMS listen, signal library operations
+- `SubGHz` workflows: Listen RX, Hunter/analyzer, scanner, weather/TPMS, jammer, Tesla replay, mem/SD signal library, frequency correction
 - `htmls`
 - `evil twin & portal` (`show_pass`)
 - `warlogs`
@@ -99,6 +99,11 @@ All paths below are on the JanOS device SD card (under `/sdcard`):
 - `/lab/handshakes/*.pcap` - captured WPA handshake files.
 - `/lab/pcaps/*.pcap` - packet captures from `start_pcap` (radio/net mode, including MITM workflow).
 - `/lab/subghz/` - saved SubGHz radio signals managed by `subghz_list sd`, `subghz_info`, `subghz_save`, `subghz_delete`, and related SubGHz commands.
+
+SubGHz uses two signal stores:
+
+- `mem` - volatile captures from `subghz_rx` and Hunter mode; clear with `subghz_clear`, promote to SD with `subghz_save`.
+- `sd` - persistent `/lab/subghz/*.sub` library; inspect, replay, rename, or delete via the SubGHz and SD data menus.
 
 ## 🚧 Status
 

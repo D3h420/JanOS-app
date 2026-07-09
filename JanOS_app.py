@@ -515,22 +515,18 @@ class UI:
             "",
             f"{Colors.GREEN}1){Colors.NC} Status",
             f"{Colors.GREEN}2){Colors.NC} Set/get frequency",
-            f"{Colors.GREEN}3){Colors.NC} RX listen",
-            f"{Colors.GREEN}4){Colors.NC} TX replay",
-            f"{Colors.GREEN}5){Colors.NC} Jam",
-            f"{Colors.GREEN}6){Colors.NC} Frequency analyzer",
-            f"{Colors.GREEN}7){Colors.NC} Scanner",
-            f"{Colors.GREEN}8){Colors.NC} Weather listen",
-            f"{Colors.GREEN}9){Colors.NC} TPMS listen",
-            f"{Colors.GREEN}10){Colors.NC} List memory",
-            f"{Colors.GREEN}11){Colors.NC} List SD",
-            f"{Colors.GREEN}12){Colors.NC} Signal info",
-            f"{Colors.GREEN}13){Colors.NC} Save memory signal",
-            f"{Colors.GREEN}14){Colors.NC} Delete SD signal",
-            f"{Colors.GREEN}15){Colors.NC} Rename SD signal",
-            f"{Colors.GREEN}16){Colors.NC} Clear memory",
-            f"{Colors.GREEN}17){Colors.NC} Debug",
-            f"{Colors.RED}18){Colors.NC} Stop SubGHz",
+            f"{Colors.GREEN}3){Colors.NC} Listen RX",
+            f"{Colors.GREEN}4){Colors.NC} Hunter / analyzer",
+            f"{Colors.GREEN}5){Colors.NC} Quick scanner",
+            f"{Colors.GREEN}6){Colors.NC} Weather listen",
+            f"{Colors.GREEN}7){Colors.NC} Jam",
+            f"{Colors.GREEN}8){Colors.NC} Tesla replay",
+            f"{Colors.GREEN}9){Colors.NC} Memory signals",
+            f"{Colors.GREEN}10){Colors.NC} SD signals",
+            f"{Colors.GREEN}11){Colors.NC} Frequency correction",
+            f"{Colors.GREEN}12){Colors.NC} TPMS listen",
+            f"{Colors.GREEN}13){Colors.NC} Debug",
+            f"{Colors.RED}14){Colors.NC} Stop SubGHz",
             "",
             f"{Colors.GRAY}0){Colors.NC} Back to main menu",
         ]
@@ -1230,6 +1226,15 @@ class JanOS:
             cleaned.append(line)
         return cleaned
 
+    def _parse_tag_fields(self, line: str) -> Dict[str, str]:
+        """Parse SubGHz key=value fields, including values with spaces."""
+        fields: Dict[str, str] = {}
+        for match in re.finditer(r'(\w+)=(.*?)(?=\s+\w+=|$)', line):
+            key = match.group(1)
+            value = match.group(2).strip().strip('"')
+            fields[key] = value
+        return fields
+
     def run_simple_command(self, command: str, title: str,
                            max_wait: float = 8.0, idle_timeout: float = 1.0,
                            clear_input_first: bool = True, pause: bool = True) -> List[str]:
@@ -1276,7 +1281,8 @@ class JanOS:
         self.run_simple_command(command, title, max_wait=max_wait, idle_timeout=idle_timeout)
 
     def monitor_command(self, command: str, title: str,
-                        stop_command: str = "stop", poll_interval: float = 1.0) -> None:
+                        stop_command: str = "stop", poll_interval: float = 1.0,
+                        pre_stop: bool = False) -> None:
         """Run a streaming command until Enter/Ctrl+C, then stop it."""
         clear_screen()
         UI.print_banner(self.device, self.attack_running, self.blackout_running,
@@ -1314,6 +1320,10 @@ class JanOS:
             print(f"\n{color}{last_line}{Colors.NC}")
 
         self.serial_mgr.clear_input()
+        if pre_stop:
+            self.serial_mgr.send_command(stop_command)
+            time.sleep(0.3)
+            self.serial_mgr.clear_input()
         self.serial_mgr.send_command(command)
         thread = threading.Thread(
             target=self.serial_mgr.read_sniffer_data,
@@ -4038,78 +4048,7 @@ class JanOS:
 
     def sd_data_subghz_menu(self) -> None:
         """List SubGHz SD signal library and optionally delete one signal."""
-        clear_screen()
-        UI.print_banner(self.device, self.attack_running, self.blackout_running,
-                       self.sniffer_running, self.sae_overflow_running,
-                       self.handshake_running, self.portal_running,
-                       self.evil_twin_running)
-
-        self.serial_mgr.clear_input()
-        self.serial_mgr.send_command("subghz_list sd")
-        time.sleep(0.5)
-        lines = self.serial_mgr.read_until_silence(max_wait=6, idle_timeout=1.0)
-
-        signals: List[Dict[str, str]] = []
-        display_lines: List[str] = []
-        for line in lines:
-            if not line or line.startswith(">"):
-                continue
-            if line.startswith("[SUBGHZ_LIST]"):
-                fields = dict(re.findall(r'(\w+)=("[^"]*"|\S+)', line))
-                idx = fields.get("idx", "?").strip('"')
-                name = fields.get("name", "<unnamed>").strip('"')
-                sig_type = fields.get("type", "?").strip('"')
-                freq = fields.get("freq", "?").strip('"')
-                manufacturer = fields.get("mf", "?").strip('"')
-                signals.append({"idx": idx, "name": name})
-                display_lines.append(
-                    f"{Colors.GREEN}{idx:>3}{Colors.NC} "
-                    f"{name:<24} {freq:<7} {sig_type:<10} {Colors.GRAY}{manufacturer}{Colors.NC}"
-                )
-            elif line.startswith("[SUBGHZ_LIST_END]"):
-                continue
-            elif "not found in keystore" in line:
-                display_lines.append(f"{Colors.YELLOW}{line}{Colors.NC}")
-
-        if not display_lines:
-            display_lines = [f"{Colors.YELLOW}No SubGHz SD signals found{Colors.NC}"]
-
-        UI.print_compact_box(
-            "SD SUBGHZ",
-            display_lines,
-            Colors.CYAN,
-            width=max(50, min(get_terminal_width() - 4, 120))
-        )
-        if not signals:
-            self._pause()
-            return
-
-        print(f"{Colors.GRAY}Type signal index to delete or press Enter to go back.{Colors.NC}")
-        try:
-            choice = input("Delete idx: ").strip()
-        except EOFError:
-            return
-        if not choice:
-            return
-
-        matching_signal = next((signal for signal in signals if signal["idx"] == choice), None)
-        if not matching_signal:
-            print(f"{Colors.RED}[!] Index not listed{Colors.NC}")
-            time.sleep(1)
-            return
-
-        confirm = input(f"Delete SubGHz signal {choice} ({matching_signal['name']})? [y/N]: ").strip().lower()
-        if confirm not in ['y', 'yes']:
-            print(f"{Colors.YELLOW}[!] Deletion cancelled{Colors.NC}")
-            time.sleep(1)
-            return
-
-        self.serial_mgr.clear_input()
-        self.serial_mgr.send_command(f"subghz_delete {choice}")
-        resp = self.serial_mgr.read_until_silence(max_wait=5, idle_timeout=0.8)
-        for line in self._clean_serial_lines(resp, f"subghz_delete {choice}"):
-            print(line)
-        self._pause()
+        self.subghz_signal_library("sd")
 
     def sd_data_menu(self) -> None:
         """SD data submenu."""
@@ -4601,7 +4540,7 @@ class JanOS:
             args = input("Args (Enter = default, e.g. raw rssi=-80): ").strip()
         except EOFError:
             return
-        self.monitor_command(f"subghz_rx {args}".strip(), "SUBGHZ RX", stop_command="subghz_stop")
+        self.monitor_command(f"subghz_rx {args}".strip(), "SUBGHZ RX", stop_command="subghz_stop", pre_stop=True)
 
     def subghz_tx(self) -> None:
         """Replay a stored SubGHz signal."""
@@ -4621,7 +4560,8 @@ class JanOS:
         self.monitor_command(
             f"subghz_freq_analyzer {args}".strip(),
             "SUBGHZ FREQ ANALYZER",
-            stop_command="subghz_stop"
+            stop_command="subghz_stop",
+            pre_stop=True
         )
 
     def subghz_scanner(self) -> None:
@@ -4630,7 +4570,196 @@ class JanOS:
             args = input("Args (Enter = default, e.g. dwell=80 edges=4 rssi=-75 fast): ").strip()
         except EOFError:
             return
-        self.monitor_command(f"subghz_scanner {args}".strip(), "SUBGHZ SCANNER", stop_command="subghz_stop")
+        self.monitor_command(f"subghz_scanner {args}".strip(), "SUBGHZ SCANNER", stop_command="subghz_stop", pre_stop=True)
+
+    def subghz_tesla_replay(self) -> None:
+        """Send Tesla charge-port replay sequence."""
+        clear_screen()
+        UI.print_banner(self.device, self.attack_running, self.blackout_running,
+                      self.sniffer_running, self.sae_overflow_running,
+                      self.handshake_running, self.portal_running,
+                      self.evil_twin_running)
+        UI.print_compact_box(
+            "TESLA REPLAY",
+            [
+                f"{Colors.YELLOW}UART -> subghz_freq 315.00{Colors.NC}",
+                f"{Colors.YELLOW}UART -> subghz_tx tesla{Colors.NC}",
+            ],
+            Colors.CYAN,
+            width=max(40, min(get_terminal_width() - 4, 110))
+        )
+        confirm = input("Send Tesla charge-port replay? [y/N]: ").strip().lower()
+        if confirm not in ['y', 'yes']:
+            return
+        self.serial_mgr.clear_input()
+        self.serial_mgr.send_command("subghz_stop")
+        time.sleep(0.3)
+        self.serial_mgr.clear_input()
+        self.serial_mgr.send_command("subghz_freq 315.00")
+        time.sleep(0.4)
+        for line in self._clean_serial_lines(
+            self.serial_mgr.read_until_silence(max_wait=3, idle_timeout=0.6),
+            "subghz_freq 315.00"
+        ):
+            print(line)
+        self.serial_mgr.send_command("subghz_tx tesla")
+        for line in self._clean_serial_lines(
+            self.serial_mgr.read_until_silence(max_wait=6, idle_timeout=0.8),
+            "subghz_tx tesla"
+        ):
+            print(line)
+        self._pause()
+
+    def subghz_frequency_correction(self) -> None:
+        """Read or set CC1101 persisted frequency correction."""
+        clear_screen()
+        UI.print_banner(self.device, self.attack_running, self.blackout_running,
+                      self.sniffer_running, self.sae_overflow_running,
+                      self.handshake_running, self.portal_running,
+                      self.evil_twin_running)
+        UI.print_compact_box(
+            "FREQ CORRECTION",
+            [
+                f"{Colors.GREEN}1){Colors.NC} Read correction",
+                f"{Colors.GREEN}2){Colors.NC} Set correction",
+                f"{Colors.GRAY}0){Colors.NC} Back",
+            ],
+            Colors.CYAN
+        )
+        try:
+            choice = input("Select option: ").strip()
+        except EOFError:
+            return
+        if choice == '1':
+            self.run_simple_command("subghz_get_freq_correction", "FREQ CORRECTION", max_wait=5, idle_timeout=0.8)
+        elif choice == '2':
+            self.prompt_and_run_command(
+                "subghz_set_freq_correction",
+                "FREQ CORRECTION",
+                "Correction MHz (-5.00..+5.00, 0 clears): ",
+                default_args="0.00",
+                max_wait=5
+            )
+
+    def subghz_list_signals(self, source: str, title: str = "") -> List[Dict[str, str]]:
+        """List SubGHz signals from mem or sd and return parsed entries."""
+        command = f"subghz_list {source}"
+        self.serial_mgr.clear_input()
+        self.serial_mgr.send_command(command)
+        time.sleep(0.5)
+        lines = self.serial_mgr.read_until_silence(max_wait=6, idle_timeout=1.0)
+
+        signals: List[Dict[str, str]] = []
+        display_lines: List[str] = []
+        for line in self._clean_serial_lines(lines, command):
+            if line.startswith("[SUBGHZ_LIST]"):
+                fields = self._parse_tag_fields(line)
+                idx = fields.get("idx", "?")
+                name = fields.get("name", "<unnamed>")
+                sig_type = fields.get("type", "?")
+                freq = fields.get("freq", "?")
+                manufacturer = fields.get("mf", "-")
+                signals.append(fields)
+                display_lines.append(
+                    f"{Colors.GREEN}{idx:>3}{Colors.NC} "
+                    f"{name:<28} {freq:<8} {sig_type:<12} {Colors.GRAY}{manufacturer}{Colors.NC}"
+                )
+            elif line.startswith("[SUBGHZ_LIST_END]"):
+                continue
+            elif "not found in keystore" in line:
+                display_lines.append(f"{Colors.YELLOW}{line}{Colors.NC}")
+
+        if not display_lines:
+            display_lines = [f"{Colors.YELLOW}No SubGHz {source} signals found{Colors.NC}"]
+
+        UI.print_compact_box(
+            title or f"SUBGHZ {source.upper()}",
+            display_lines,
+            Colors.CYAN,
+            width=max(50, min(get_terminal_width() - 4, 120))
+        )
+        return signals
+
+    def subghz_signal_library(self, source: str) -> None:
+        """Manage SubGHz mem or SD signal library."""
+        source = source.lower()
+        if source not in ("mem", "sd"):
+            return
+
+        while True:
+            clear_screen()
+            UI.print_banner(self.device, self.attack_running, self.blackout_running,
+                          self.sniffer_running, self.sae_overflow_running,
+                          self.handshake_running, self.portal_running,
+                          self.evil_twin_running)
+            signals = self.subghz_list_signals(source, f"SUBGHZ {source.upper()} SIGNALS")
+            if source == "mem":
+                actions = [
+                    f"{Colors.GREEN}i <idx>{Colors.NC} info",
+                    f"{Colors.GREEN}t <idx>{Colors.NC} replay",
+                    f"{Colors.GREEN}r <idx>{Colors.NC} raw replay",
+                    f"{Colors.GREEN}s <idx|all>{Colors.NC} save to SD",
+                    f"{Colors.GREEN}c{Colors.NC} clear mem",
+                    f"{Colors.GRAY}Enter{Colors.NC} back",
+                ]
+            else:
+                actions = [
+                    f"{Colors.GREEN}i <idx>{Colors.NC} info",
+                    f"{Colors.GREEN}t <idx>{Colors.NC} replay",
+                    f"{Colors.GREEN}r <idx>{Colors.NC} raw replay",
+                    f"{Colors.GREEN}n <idx> <name>{Colors.NC} rename",
+                    f"{Colors.GREEN}d <idx>{Colors.NC} delete",
+                    f"{Colors.GRAY}Enter{Colors.NC} back",
+                ]
+            UI.print_compact_box("ACTIONS", actions, Colors.CYAN, width=70)
+
+            try:
+                raw_choice = input("Action: ").strip()
+            except EOFError:
+                return
+            if not raw_choice:
+                return
+
+            parts = raw_choice.split(maxsplit=2)
+            action = parts[0].lower()
+            arg1 = parts[1] if len(parts) > 1 else ""
+            arg2 = parts[2] if len(parts) > 2 else ""
+
+            valid_indexes = {signal.get("idx", "") for signal in signals}
+            if action != "s" or arg1 != "all":
+                if action in {"i", "t", "r", "s", "n", "d"} and arg1 not in valid_indexes:
+                    print(f"{Colors.RED}[!] Index not listed{Colors.NC}")
+                    time.sleep(1)
+                    continue
+
+            if action == "i":
+                self.run_simple_command(f"subghz_info {arg1} {source}", "SUBGHZ INFO", max_wait=6, idle_timeout=0.8)
+            elif action == "t":
+                self.run_simple_command(f"subghz_tx {arg1} {source}", "SUBGHZ TX", max_wait=6, idle_timeout=0.8)
+            elif action == "r":
+                self.run_simple_command(f"subghz_tx {arg1} {source} raw", "SUBGHZ RAW TX", max_wait=6, idle_timeout=0.8)
+            elif source == "mem" and action == "s":
+                target = arg1 or "all"
+                self.run_simple_command(f"subghz_save {target}", "SUBGHZ SAVE", max_wait=8, idle_timeout=1.0)
+            elif source == "mem" and action == "c":
+                confirm = input("Clear volatile mem cache? [y/N]: ").strip().lower()
+                if confirm in ['y', 'yes']:
+                    self.run_simple_command("subghz_clear", "SUBGHZ CLEAR", max_wait=5, idle_timeout=0.8)
+            elif source == "sd" and action == "n":
+                if not arg2:
+                    print(f"{Colors.RED}[!] New name is required{Colors.NC}")
+                    time.sleep(1)
+                    continue
+                self.run_simple_command(f"subghz_rename {arg1} {arg2}", "SUBGHZ RENAME", max_wait=6, idle_timeout=0.8)
+            elif source == "sd" and action == "d":
+                signal = next((item for item in signals if item.get("idx") == arg1), {})
+                name = signal.get("name", "<unnamed>")
+                confirm = input(f"Delete SD signal {arg1} ({name})? [y/N]: ").strip().lower()
+                if confirm in ['y', 'yes']:
+                    self.run_simple_command(f"subghz_delete {arg1}", "SUBGHZ DELETE", max_wait=6, idle_timeout=0.8)
+            else:
+                print(f"{Colors.RED}Invalid action{Colors.NC}")
+                time.sleep(1)
 
     def subghz_signal_info(self) -> None:
         """Show details for a stored SubGHz signal."""
@@ -4695,34 +4824,26 @@ class JanOS:
                 elif choice == '3':
                     self.subghz_rx()
                 elif choice == '4':
-                    self.subghz_tx()
-                elif choice == '5':
-                    self.monitor_command("subghz_jam", "SUBGHZ JAM", stop_command="subghz_stop")
-                elif choice == '6':
                     self.subghz_freq_analyzer()
-                elif choice == '7':
+                elif choice == '5':
                     self.subghz_scanner()
+                elif choice == '6':
+                    self.monitor_command("subghz_weather", "SUBGHZ WEATHER", stop_command="subghz_stop", pre_stop=True)
+                elif choice == '7':
+                    self.monitor_command("subghz_jam", "SUBGHZ JAM", stop_command="subghz_stop", pre_stop=True)
                 elif choice == '8':
-                    self.monitor_command("subghz_weather", "SUBGHZ WEATHER", stop_command="subghz_stop")
+                    self.subghz_tesla_replay()
                 elif choice == '9':
-                    self.monitor_command("subghz_tpms", "SUBGHZ TPMS", stop_command="subghz_stop")
+                    self.subghz_signal_library("mem")
                 elif choice == '10':
-                    self.run_simple_command("subghz_list mem", "SUBGHZ MEM", max_wait=6, idle_timeout=0.8)
+                    self.subghz_signal_library("sd")
                 elif choice == '11':
-                    self.run_simple_command("subghz_list sd", "SUBGHZ SD", max_wait=6, idle_timeout=0.8)
+                    self.subghz_frequency_correction()
                 elif choice == '12':
-                    self.subghz_signal_info()
+                    self.monitor_command("subghz_tpms", "SUBGHZ TPMS", stop_command="subghz_stop", pre_stop=True)
                 elif choice == '13':
-                    self.subghz_save_signal()
-                elif choice == '14':
-                    self.subghz_delete_signal()
-                elif choice == '15':
-                    self.subghz_rename_signal()
-                elif choice == '16':
-                    self.run_simple_command("subghz_clear", "SUBGHZ CLEAR", max_wait=5, idle_timeout=0.8)
-                elif choice == '17':
                     self.subghz_debug()
-                elif choice == '18':
+                elif choice == '14':
                     self.run_simple_command("subghz_stop", "SUBGHZ STOP", max_wait=4, idle_timeout=0.8)
                 elif choice == '0':
                     return
