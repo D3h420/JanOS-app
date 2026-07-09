@@ -513,24 +513,40 @@ class UI:
         """Print SubGHz submenu."""
         lines = [
             "",
-            f"{Colors.GREEN}1){Colors.NC} Status",
-            f"{Colors.GREEN}2){Colors.NC} Set/get frequency",
-            f"{Colors.GREEN}3){Colors.NC} Listen RX",
-            f"{Colors.GREEN}4){Colors.NC} Hunter / analyzer",
-            f"{Colors.GREEN}5){Colors.NC} Quick scanner",
-            f"{Colors.GREEN}6){Colors.NC} Weather listen",
-            f"{Colors.GREEN}7){Colors.NC} Jam",
-            f"{Colors.GREEN}8){Colors.NC} Tesla replay",
-            f"{Colors.GREEN}9){Colors.NC} Memory signals",
-            f"{Colors.GREEN}10){Colors.NC} SD signals",
-            f"{Colors.GREEN}11){Colors.NC} Frequency correction",
-            f"{Colors.GREEN}12){Colors.NC} TPMS listen",
-            f"{Colors.GREEN}13){Colors.NC} Debug",
-            f"{Colors.RED}14){Colors.NC} Stop SubGHz",
+            f"{Colors.GRAY}capture{Colors.NC}",
+            f"{Colors.GREEN}1){Colors.NC} Read a remote",
+            f"{Colors.GREEN}2){Colors.NC} Find and capture",
+            f"{Colors.GREEN}3){Colors.NC} Scan active frequencies",
+            "",
+            f"{Colors.GRAY}signals{Colors.NC}",
+            f"{Colors.GREEN}4){Colors.NC} Unsaved captures",
+            f"{Colors.GREEN}5){Colors.NC} Saved library",
+            "",
+            f"{Colors.GRAY}receivers and transmitters{Colors.NC}",
+            f"{Colors.GREEN}6){Colors.NC} Weather / TPMS sensors",
+            f"{Colors.GREEN}7){Colors.NC} Tesla charge port",
+            f"{Colors.GREEN}8){Colors.NC} Jam a frequency",
+            "",
+            f"{Colors.GRAY}radio{Colors.NC}",
+            f"{Colors.GREEN}9){Colors.NC} Radio tools",
+            f"{Colors.RED}10){Colors.NC} Stop radio",
             "",
             f"{Colors.GRAY}0){Colors.NC} Back to main menu",
         ]
-        UI.print_compact_box("SUBGHZ", lines, Colors.CYAN, width=70)
+        UI.print_compact_box("SUBGHZ", lines, Colors.CYAN, width=68)
+
+    @staticmethod
+    def print_subghz_tools_menu() -> None:
+        """Print SubGHz radio tools submenu."""
+        lines = [
+            "",
+            f"{Colors.GREEN}1){Colors.NC} Radio status",
+            f"{Colors.GREEN}2){Colors.NC} Working frequency",
+            f"{Colors.GREEN}3){Colors.NC} Frequency correction",
+            f"{Colors.GREEN}4){Colors.NC} Debug",
+            f"{Colors.GRAY}0){Colors.NC} Back",
+        ]
+        UI.print_compact_box("RADIO TOOLS", lines, Colors.CYAN, width=62)
 
     @staticmethod
     def print_compact_box(title: str, lines: List[str], color: str = Colors.CYAN,
@@ -1292,8 +1308,8 @@ class JanOS:
         UI.print_compact_box(
             title,
             [
-                f"{Colors.YELLOW}UART -> {command}{Colors.NC}",
                 f"{Colors.GRAY}Press Enter to stop{Colors.NC}",
+                f"{Colors.GRAY}{command}{Colors.NC}",
             ],
             Colors.CYAN,
             width=max(40, min(get_terminal_width() - 4, 110))
@@ -4537,10 +4553,26 @@ class JanOS:
     def subghz_rx(self) -> None:
         """Start SubGHz RX monitor."""
         try:
-            args = input("Args (Enter = default, e.g. raw rssi=-80): ").strip()
+            freq = input("Frequency MHz [433.92]: ").strip() or "433.92"
+            mode = input("Capture mode: [D]ecode or [R]aw? ").strip().lower()
+            rssi = input("RSSI gate dBm [-80]: ").strip() or "-80"
         except EOFError:
             return
-        self.monitor_command(f"subghz_rx {args}".strip(), "SUBGHZ RX", stop_command="subghz_stop", pre_stop=True)
+
+        self.serial_mgr.clear_input()
+        self.serial_mgr.send_command("subghz_stop")
+        time.sleep(0.3)
+        self.serial_mgr.clear_input()
+        self.serial_mgr.send_command(f"subghz_freq {freq}")
+        time.sleep(0.3)
+        self.serial_mgr.read_until_silence(max_wait=2, idle_timeout=0.4)
+
+        raw_arg = "raw " if mode.startswith("r") else ""
+        self.monitor_command(
+            f"subghz_rx {raw_arg}rssi={rssi}".strip(),
+            "READ REMOTE",
+            stop_command="subghz_stop"
+        )
 
     def subghz_tx(self) -> None:
         """Replay a stored SubGHz signal."""
@@ -4554,12 +4586,32 @@ class JanOS:
     def subghz_freq_analyzer(self) -> None:
         """Start SubGHz frequency analyzer."""
         try:
-            args = input("Args (Enter = default): ").strip()
+            print(f"{Colors.GRAY}1 = auto-capture decoded, 2 = auto-capture raw, 3 = scan only{Colors.NC}")
+            mode = input("Mode [1]: ").strip() or "1"
+            trigger = input("Trigger dBm [-85]: ").strip() or "-85"
+            fast = input("Fast scan? [y/N]: ").strip().lower() in ['y', 'yes']
+            timeout = input("Capture timeout ms [2000]: ").strip() or "2000"
+            single = False
+            if mode == "1":
+                single = input("One-press capture? [Y/n]: ").strip().lower() not in ['n', 'no']
         except EOFError:
             return
+
+        args = [trigger]
+        if mode == "1":
+            args.append("hunt")
+            if single:
+                args.append("single")
+            args.append(f"timeout={timeout}")
+        elif mode == "2":
+            args.append("raw")
+            args.append(f"timeout={timeout}")
+        if fast:
+            args.append("fast")
+
         self.monitor_command(
-            f"subghz_freq_analyzer {args}".strip(),
-            "SUBGHZ FREQ ANALYZER",
+            f"subghz_freq_analyzer {' '.join(args)}".strip(),
+            "FIND AND CAPTURE",
             stop_command="subghz_stop",
             pre_stop=True
         )
@@ -4567,10 +4619,32 @@ class JanOS:
     def subghz_scanner(self) -> None:
         """Start SubGHz scanner."""
         try:
-            args = input("Args (Enter = default, e.g. dwell=80 edges=4 rssi=-75 fast): ").strip()
+            print(f"{Colors.GRAY}1 = normal, 2 = fast, 3 = sensitive, 4 = custom{Colors.NC}")
+            profile = input("Scan profile [1]: ").strip() or "1"
         except EOFError:
             return
-        self.monitor_command(f"subghz_scanner {args}".strip(), "SUBGHZ SCANNER", stop_command="subghz_stop", pre_stop=True)
+
+        args = ""
+        if profile == "2":
+            args = "dwell=40 edges=2 rssi=-75 fast"
+        elif profile == "3":
+            args = "dwell=120 edges=4 rssi=-85"
+        elif profile == "4":
+            try:
+                dwell = input("Dwell ms [80]: ").strip() or "80"
+                edges = input("Minimum edges [4]: ").strip() or "4"
+                rssi = input("RSSI floor dBm [-75]: ").strip() or "-75"
+                fast = input("Fast scan? [y/N]: ").strip().lower() in ['y', 'yes']
+            except EOFError:
+                return
+            args = f"dwell={dwell} edges={edges} rssi={rssi}" + (" fast" if fast else "")
+
+        self.monitor_command(
+            f"subghz_scanner {args}".strip(),
+            "SCAN ACTIVE FREQUENCIES",
+            stop_command="subghz_stop",
+            pre_stop=True
+        )
 
     def subghz_tesla_replay(self) -> None:
         """Send Tesla charge-port replay sequence."""
@@ -4610,6 +4684,49 @@ class JanOS:
             print(line)
         self._pause()
 
+    def subghz_sensor_monitor(self) -> None:
+        """Monitor weather or TPMS sensors."""
+        clear_screen()
+        UI.print_banner(self.device, self.attack_running, self.blackout_running,
+                      self.sniffer_running, self.sae_overflow_running,
+                      self.handshake_running, self.portal_running,
+                      self.evil_twin_running)
+        UI.print_compact_box(
+            "SENSORS",
+            [
+                f"{Colors.GREEN}1){Colors.NC} Weather sensors",
+                f"{Colors.GREEN}2){Colors.NC} TPMS tire sensors",
+                f"{Colors.GRAY}0){Colors.NC} Back",
+            ],
+            Colors.CYAN
+        )
+        try:
+            choice = input("Select option: ").strip()
+        except EOFError:
+            return
+        if choice == '1':
+            self.monitor_command("subghz_weather", "WEATHER SENSORS", stop_command="subghz_stop", pre_stop=True)
+        elif choice == '2':
+            self.monitor_command("subghz_tpms", "TPMS SENSORS", stop_command="subghz_stop", pre_stop=True)
+
+    def subghz_jammer(self) -> None:
+        """Start jammer on a chosen frequency."""
+        try:
+            freq = input("Frequency MHz to jam [433.92]: ").strip() or "433.92"
+        except EOFError:
+            return
+        confirm = input(f"Start jammer on {freq} MHz? [y/N]: ").strip().lower()
+        if confirm not in ['y', 'yes']:
+            return
+        self.serial_mgr.clear_input()
+        self.serial_mgr.send_command("subghz_stop")
+        time.sleep(0.3)
+        self.serial_mgr.clear_input()
+        self.serial_mgr.send_command(f"subghz_freq {freq}")
+        time.sleep(0.3)
+        self.serial_mgr.read_until_silence(max_wait=2, idle_timeout=0.4)
+        self.monitor_command("subghz_jam", "JAM FREQUENCY", stop_command="subghz_stop")
+
     def subghz_frequency_correction(self) -> None:
         """Read or set CC1101 persisted frequency correction."""
         clear_screen()
@@ -4640,6 +4757,33 @@ class JanOS:
                 default_args="0.00",
                 max_wait=5
             )
+
+    def subghz_tools_menu(self) -> None:
+        """SubGHz status and radio settings."""
+        while True:
+            clear_screen()
+            UI.print_banner(self.device, self.attack_running, self.blackout_running,
+                          self.sniffer_running, self.sae_overflow_running,
+                          self.handshake_running, self.portal_running,
+                          self.evil_twin_running)
+            UI.print_subghz_tools_menu()
+            try:
+                choice = input("Select option: ").strip()
+            except EOFError:
+                return
+            if choice == '1':
+                self.run_simple_command("subghz_status", "RADIO STATUS", max_wait=5, idle_timeout=0.8)
+            elif choice == '2':
+                self.prompt_and_run_command("subghz_freq", "WORKING FREQUENCY", "MHz (Enter = read): ", max_wait=5)
+            elif choice == '3':
+                self.subghz_frequency_correction()
+            elif choice == '4':
+                self.subghz_debug()
+            elif choice == '0':
+                return
+            else:
+                print(f"{Colors.RED}Invalid option{Colors.NC}")
+                time.sleep(1)
 
     def subghz_list_signals(self, source: str, title: str = "") -> List[Dict[str, str]]:
         """List SubGHz signals from mem or sd and return parsed entries."""
@@ -4818,32 +4962,24 @@ class JanOS:
                 UI.print_subghz_menu()
                 choice = input("Select option: ").strip()
                 if choice == '1':
-                    self.run_simple_command("subghz_status", "SUBGHZ STATUS", max_wait=5, idle_timeout=0.8)
-                elif choice == '2':
-                    self.prompt_and_run_command("subghz_freq", "SUBGHZ FREQ", "MHz (Enter = read): ", max_wait=5)
-                elif choice == '3':
                     self.subghz_rx()
-                elif choice == '4':
+                elif choice == '2':
                     self.subghz_freq_analyzer()
-                elif choice == '5':
+                elif choice == '3':
                     self.subghz_scanner()
-                elif choice == '6':
-                    self.monitor_command("subghz_weather", "SUBGHZ WEATHER", stop_command="subghz_stop", pre_stop=True)
-                elif choice == '7':
-                    self.monitor_command("subghz_jam", "SUBGHZ JAM", stop_command="subghz_stop", pre_stop=True)
-                elif choice == '8':
-                    self.subghz_tesla_replay()
-                elif choice == '9':
+                elif choice == '4':
                     self.subghz_signal_library("mem")
-                elif choice == '10':
+                elif choice == '5':
                     self.subghz_signal_library("sd")
-                elif choice == '11':
-                    self.subghz_frequency_correction()
-                elif choice == '12':
-                    self.monitor_command("subghz_tpms", "SUBGHZ TPMS", stop_command="subghz_stop", pre_stop=True)
-                elif choice == '13':
-                    self.subghz_debug()
-                elif choice == '14':
+                elif choice == '6':
+                    self.subghz_sensor_monitor()
+                elif choice == '7':
+                    self.subghz_tesla_replay()
+                elif choice == '8':
+                    self.subghz_jammer()
+                elif choice == '9':
+                    self.subghz_tools_menu()
+                elif choice == '10':
                     self.run_simple_command("subghz_stop", "SUBGHZ STOP", max_wait=4, idle_timeout=0.8)
                 elif choice == '0':
                     return

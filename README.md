@@ -49,7 +49,7 @@ The script sends text commands to projectZero over UART (115200), parses respons
 - BLE helpers (`scan_bt`, `scan_airtag`)
 - `SD data browser`
 - `System` (`version`, `board_name`, `sd_status`, `help`, raw command, vendor/display/LED/channel-time controls)
-- `SubGHz` workflows: Listen RX, Hunter/analyzer, scanner, weather/TPMS, jammer, Tesla replay, mem/SD signal library, frequency correction
+- `SubGHz` workflows: Read a remote, find and capture, scan active frequencies, unsaved captures, saved library, weather/TPMS sensors, Tesla replay, jammer, radio tools
 - `htmls`
 - `evil twin & portal` (`show_pass`)
 - `warlogs`
