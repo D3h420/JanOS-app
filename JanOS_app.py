@@ -471,7 +471,8 @@ class UI:
             f"{Colors.GREEN}3){Colors.NC} warlogs",
             f"{Colors.GREEN}4){Colors.NC} handshakes",
             f"{Colors.GREEN}5){Colors.NC} pcap",
-            f"{Colors.GREEN}6){Colors.NC} SD status",
+            f"{Colors.GREEN}6){Colors.NC} subghz",
+            f"{Colors.GREEN}7){Colors.NC} SD status",
             "",
             f"{Colors.GRAY}0){Colors.NC} Back to main menu",
         ]
@@ -4037,6 +4038,81 @@ class JanOS:
         print()
         input("Press Enter to continue...")
 
+    def sd_data_subghz_menu(self) -> None:
+        """List SubGHz SD signal library and optionally delete one signal."""
+        clear_screen()
+        UI.print_banner(self.device, self.attack_running, self.blackout_running,
+                       self.sniffer_running, self.sae_overflow_running,
+                       self.handshake_running, self.portal_running,
+                       self.evil_twin_running)
+
+        self.serial_mgr.clear_input()
+        self.serial_mgr.send_command("subghz_list sd")
+        time.sleep(0.5)
+        lines = self.serial_mgr.read_until_silence(max_wait=6, idle_timeout=1.0)
+
+        signals: List[Dict[str, str]] = []
+        display_lines: List[str] = []
+        for line in lines:
+            if not line or line.startswith(">"):
+                continue
+            if line.startswith("[SUBGHZ_LIST]"):
+                fields = dict(re.findall(r'(\w+)=("[^"]*"|\S+)', line))
+                idx = fields.get("idx", "?").strip('"')
+                name = fields.get("name", "<unnamed>").strip('"')
+                sig_type = fields.get("type", "?").strip('"')
+                freq = fields.get("freq", "?").strip('"')
+                manufacturer = fields.get("mf", "?").strip('"')
+                signals.append({"idx": idx, "name": name})
+                display_lines.append(
+                    f"{Colors.GREEN}{idx:>3}{Colors.NC} "
+                    f"{name:<24} {freq:<7} {sig_type:<10} {Colors.GRAY}{manufacturer}{Colors.NC}"
+                )
+            elif line.startswith("[SUBGHZ_LIST_END]"):
+                continue
+            elif "not found in keystore" in line:
+                display_lines.append(f"{Colors.YELLOW}{line}{Colors.NC}")
+
+        if not display_lines:
+            display_lines = [f"{Colors.YELLOW}No SubGHz SD signals found{Colors.NC}"]
+
+        UI.print_compact_box(
+            "SD SUBGHZ",
+            display_lines,
+            Colors.CYAN,
+            width=max(50, min(get_terminal_width() - 4, 120))
+        )
+        if not signals:
+            self._pause()
+            return
+
+        print(f"{Colors.GRAY}Type signal index to delete or press Enter to go back.{Colors.NC}")
+        try:
+            choice = input("Delete idx: ").strip()
+        except EOFError:
+            return
+        if not choice:
+            return
+
+        matching_signal = next((signal for signal in signals if signal["idx"] == choice), None)
+        if not matching_signal:
+            print(f"{Colors.RED}[!] Index not listed{Colors.NC}")
+            time.sleep(1)
+            return
+
+        confirm = input(f"Delete SubGHz signal {choice} ({matching_signal['name']})? [y/N]: ").strip().lower()
+        if confirm not in ['y', 'yes']:
+            print(f"{Colors.YELLOW}[!] Deletion cancelled{Colors.NC}")
+            time.sleep(1)
+            return
+
+        self.serial_mgr.clear_input()
+        self.serial_mgr.send_command(f"subghz_delete {choice}")
+        resp = self.serial_mgr.read_until_silence(max_wait=5, idle_timeout=0.8)
+        for line in self._clean_serial_lines(resp, f"subghz_delete {choice}"):
+            print(line)
+        self._pause()
+
     def sd_data_menu(self) -> None:
         """SD data submenu."""
         while True:
@@ -4059,6 +4135,8 @@ class JanOS:
                 elif choice == '5':
                     self.list_dir_entries("list_dir /sdcard/lab/pcaps", "SD PCAPS", "lab/pcaps", (".pcap",))
                 elif choice == '6':
+                    self.sd_data_subghz_menu()
+                elif choice == '7':
                     self.run_simple_command("sd_status", "SD STATUS", max_wait=4, idle_timeout=0.8)
                 elif choice == '0':
                     return

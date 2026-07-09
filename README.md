@@ -55,6 +55,7 @@ The script sends text commands to projectZero over UART (115200), parses respons
 - `warlogs`
 - `handshakes`
 - `pcap` (`/sdcard/lab/pcaps`, `.pcap` files only)
+- `subghz` (`subghz_list sd` + `subghz_delete`)
 
 ## 📦 Requirements
 
@@ -97,6 +98,7 @@ All paths below are on the JanOS device SD card (under `/sdcard`):
 - `/lab/oui_wifi.bin` - vendor lookup table streamed on demand.
 - `/lab/handshakes/*.pcap` - captured WPA handshake files.
 - `/lab/pcaps/*.pcap` - packet captures from `start_pcap` (radio/net mode, including MITM workflow).
+- `/lab/subghz/` - saved SubGHz radio signals managed by `subghz_list sd`, `subghz_info`, `subghz_save`, `subghz_delete`, and related SubGHz commands.
 
 ## 🚧 Status
 
