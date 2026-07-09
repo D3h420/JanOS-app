@@ -260,6 +260,8 @@ class UI:
             f"{Colors.GREEN}3){Colors.NC} Attacks",
             f"{Colors.GREEN}4){Colors.NC} Wardrive",
             f"{Colors.GREEN}5){Colors.NC} SD data",
+            f"{Colors.GREEN}6){Colors.NC} System",
+            f"{Colors.GREEN}7){Colors.NC} SubGHz",
             "",
             f"{Colors.GRAY}0){Colors.NC} Exit",
         ]
@@ -273,6 +275,8 @@ class UI:
             f"{Colors.GREEN}1){Colors.NC} Scan networks",
             f"{Colors.GREEN}2){Colors.NC} Show scan results",
             f"{Colors.GREEN}3){Colors.NC} Select networks",
+            f"{Colors.GREEN}4){Colors.NC} Inspect network",
+            f"{Colors.GREEN}5){Colors.NC} Unselect networks",
             "",
             f"{Colors.GRAY}0){Colors.NC} Back to main menu",
         ]
@@ -297,6 +301,15 @@ class UI:
             f"{Colors.GREEN}1){Colors.NC} Start sniffer",
             f"{Colors.GREEN}2){Colors.NC} Show results",
             f"{Colors.GREEN}3){Colors.NC} Show probes",
+            f"{Colors.GREEN}4){Colors.NC} Show results + vendor",
+            f"{Colors.GREEN}5){Colors.NC} Show probes + vendor",
+            f"{Colors.GREEN}6){Colors.NC} List probes",
+            f"{Colors.GREEN}7){Colors.NC} Clear sniffer results",
+            f"{Colors.GREEN}8){Colors.NC} Sniffer Dog",
+            f"{Colors.GREEN}9){Colors.NC} Deauth detector",
+            f"{Colors.GREEN}10){Colors.NC} AP locator",
+            f"{Colors.GREEN}11){Colors.NC} Packet monitor",
+            f"{Colors.GREEN}12){Colors.NC} Channel view",
             "",
             f"{Colors.GRAY}0){Colors.NC} Back to main menu",
         ]
@@ -398,6 +411,15 @@ class UI:
             f"{Colors.GREEN}1){Colors.NC} Reboot device",
             f"{Colors.GREEN}2){Colors.NC} Ping host",
             f"{Colors.GREEN}3){Colors.NC} List SD card",
+            f"{Colors.GREEN}4){Colors.NC} Device version",
+            f"{Colors.GREEN}5){Colors.NC} Board name",
+            f"{Colors.GREEN}6){Colors.NC} SD status",
+            f"{Colors.GREEN}7){Colors.NC} Help",
+            f"{Colors.GREEN}8){Colors.NC} Vendor lookup",
+            f"{Colors.GREEN}9){Colors.NC} Display setting",
+            f"{Colors.GREEN}10){Colors.NC} LED setting",
+            f"{Colors.GREEN}11){Colors.NC} Channel time",
+            f"{Colors.GREEN}12){Colors.NC} Raw command",
             "",
             f"{Colors.GRAY}0){Colors.NC} Back to main menu",
         ]
@@ -410,6 +432,12 @@ class UI:
             "",
             f"{Colors.GREEN}1){Colors.NC} Start wardrive",
             f"{Colors.GREEN}2){Colors.NC} GPS setup",
+            f"{Colors.GREEN}3){Colors.NC} Start wardrive promisc",
+            f"{Colors.GREEN}4){Colors.NC} Start wardrive promisc + KML trace",
+            f"{Colors.GREEN}5){Colors.NC} Wardrive config",
+            f"{Colors.GREEN}6){Colors.NC} Anti-surveillance",
+            f"{Colors.GREEN}7){Colors.NC} BLE scan",
+            f"{Colors.GREEN}8){Colors.NC} AirTag/SmartTag scan",
             "",
             f"{Colors.GRAY}0){Colors.NC} Back to main menu",
         ]
@@ -426,6 +454,8 @@ class UI:
             f"{Colors.GREEN}4){Colors.NC} Set GPS module: tab5",
             f"{Colors.GREEN}5){Colors.NC} Set GPS module: cap",
             f"{Colors.GREEN}6){Colors.NC} Start GPS raw monitor",
+            f"{Colors.GREEN}7){Colors.NC} Set external GPS position",
+            f"{Colors.GREEN}8){Colors.NC} Set CAP GPS position",
             "",
             f"{Colors.GRAY}0){Colors.NC} Back to wardrive menu",
         ]
@@ -441,6 +471,7 @@ class UI:
             f"{Colors.GREEN}3){Colors.NC} warlogs",
             f"{Colors.GREEN}4){Colors.NC} handshakes",
             f"{Colors.GREEN}5){Colors.NC} pcap",
+            f"{Colors.GREEN}6){Colors.NC} SD status",
             "",
             f"{Colors.GRAY}0){Colors.NC} Back to main menu",
         ]
@@ -457,6 +488,54 @@ class UI:
             f"{Colors.GRAY}0){Colors.NC} Back to attacks",
         ]
         UI.print_compact_box("BEACON SPAM", lines, Colors.CYAN)
+
+    @staticmethod
+    def print_wardrive_config_menu() -> None:
+        """Print wardrive 2.0 config submenu."""
+        lines = [
+            "",
+            f"{Colors.GREEN}1){Colors.NC} Show config",
+            f"{Colors.GREEN}2){Colors.NC} Set bands",
+            f"{Colors.GREEN}3){Colors.NC} Set channels",
+            f"{Colors.GREEN}4){Colors.NC} Set RSSI delta",
+            f"{Colors.GREEN}5){Colors.NC} Set memory cap",
+            f"{Colors.GREEN}6){Colors.NC} Set startup cooldown",
+            f"{Colors.GREEN}7){Colors.NC} Blacklist",
+            f"{Colors.GREEN}8){Colors.NC} Anti-surveillance sensitivity",
+            "",
+            f"{Colors.GRAY}0){Colors.NC} Back to wardrive menu",
+        ]
+        UI.print_compact_box("WARDRIVE CONFIG", lines, Colors.CYAN)
+
+    @staticmethod
+    def print_subghz_menu() -> None:
+        """Print SubGHz submenu."""
+        lines = [
+            "",
+            f"{Colors.GREEN}1){Colors.NC} Status",
+            f"{Colors.GREEN}2){Colors.NC} Set/get frequency",
+            f"{Colors.GREEN}3){Colors.NC} RX listen",
+            f"{Colors.GREEN}4){Colors.NC} TX replay",
+            f"{Colors.GREEN}5){Colors.NC} Jam",
+            f"{Colors.GREEN}6){Colors.NC} Frequency analyzer",
+            f"{Colors.GREEN}7){Colors.NC} Scanner",
+            f"{Colors.GREEN}8){Colors.NC} Weather listen",
+            f"{Colors.GREEN}9){Colors.NC} TPMS listen",
+            f"{Colors.GREEN}10){Colors.NC} List memory",
+            f"{Colors.GREEN}11){Colors.NC} List SD",
+            f"{Colors.GREEN}12){Colors.NC} Signal info",
+            f"{Colors.GREEN}13){Colors.NC} Save memory signal",
+            f"{Colors.GREEN}14){Colors.NC} Delete SD signal",
+            f"{Colors.GREEN}15){Colors.NC} Rename SD signal",
+            f"{Colors.GREEN}16){Colors.NC} Clear memory",
+            f"{Colors.GREEN}17){Colors.NC} Protocols",
+            f"{Colors.GREEN}18){Colors.NC} Keys",
+            f"{Colors.GREEN}19){Colors.NC} Debug",
+            f"{Colors.RED}20){Colors.NC} Stop SubGHz",
+            "",
+            f"{Colors.GRAY}0){Colors.NC} Back to main menu",
+        ]
+        UI.print_compact_box("SUBGHZ", lines, Colors.CYAN, width=70)
 
     @staticmethod
     def print_compact_box(title: str, lines: List[str], color: str = Colors.CYAN,
@@ -1135,6 +1214,134 @@ class JanOS:
             except (OSError, ValueError):
                 # Non-interactive stdin: keep running until Ctrl+C.
                 time.sleep(poll_interval)
+
+    def _pause(self) -> None:
+        """Pause for user input."""
+        input("Press Enter to continue...")
+
+    def _clean_serial_lines(self, lines: List[str], command: str = "") -> List[str]:
+        """Remove prompts and command echoes from UART output."""
+        command_root = command.strip().split()[0].lower() if command.strip() else ""
+        cleaned: List[str] = []
+        for line in lines:
+            if not line or line.startswith(">"):
+                continue
+            if command_root and line.strip().lower() == command.strip().lower():
+                continue
+            cleaned.append(line)
+        return cleaned
+
+    def run_simple_command(self, command: str, title: str,
+                           max_wait: float = 8.0, idle_timeout: float = 1.0,
+                           clear_input_first: bool = True, pause: bool = True) -> List[str]:
+        """Send a command, print the response, and return cleaned output lines."""
+        clear_screen()
+        UI.print_banner(self.device, self.attack_running, self.blackout_running,
+                       self.sniffer_running, self.sae_overflow_running,
+                       self.handshake_running, self.portal_running,
+                       self.evil_twin_running)
+        UI.print_compact_box(
+            title,
+            [f"{Colors.YELLOW}UART -> {command}{Colors.NC}"],
+            Colors.CYAN,
+            width=max(40, min(get_terminal_width() - 4, 110))
+        )
+        if clear_input_first:
+            self.serial_mgr.clear_input()
+        self.serial_mgr.send_command(command)
+        time.sleep(0.4)
+        lines = self.serial_mgr.read_until_silence(max_wait=max_wait, idle_timeout=idle_timeout)
+        cleaned = self._clean_serial_lines(lines, command)
+
+        if cleaned:
+            for line in cleaned:
+                print(line)
+        else:
+            print(f"{Colors.GRAY}[-] No response{Colors.NC}")
+        print()
+        if pause:
+            self._pause()
+        return cleaned
+
+    def prompt_and_run_command(self, command_root: str, title: str, prompt: str,
+                               default_args: str = "", max_wait: float = 8.0,
+                               idle_timeout: float = 1.0) -> None:
+        """Prompt for command arguments and run a one-shot command."""
+        try:
+            suffix = input(prompt).strip()
+        except EOFError:
+            return
+        if not suffix:
+            suffix = default_args.strip()
+        command = f"{command_root} {suffix}".strip()
+        self.run_simple_command(command, title, max_wait=max_wait, idle_timeout=idle_timeout)
+
+    def monitor_command(self, command: str, title: str,
+                        stop_command: str = "stop", poll_interval: float = 1.0) -> None:
+        """Run a streaming command until Enter/Ctrl+C, then stop it."""
+        clear_screen()
+        UI.print_banner(self.device, self.attack_running, self.blackout_running,
+                       self.sniffer_running, self.sae_overflow_running,
+                       self.handshake_running, self.portal_running,
+                       self.evil_twin_running)
+        UI.print_compact_box(
+            title,
+            [
+                f"{Colors.YELLOW}UART -> {command}{Colors.NC}",
+                f"{Colors.GRAY}Press Enter to stop{Colors.NC}",
+            ],
+            Colors.CYAN,
+            width=max(40, min(get_terminal_width() - 4, 110))
+        )
+
+        stop_event = threading.Event()
+        line_count = 0
+        last_line = ""
+
+        def callback(line: str) -> None:
+            nonlocal line_count, last_line
+            if not line or line.startswith(">"):
+                return
+            if line.strip().lower() == command.strip().lower():
+                return
+            line_count += 1
+            last_line = line.strip()
+            lower = last_line.lower()
+            color = Colors.CYAN
+            if "error" in lower or "failed" in lower:
+                color = Colors.RED
+            elif any(token in lower for token in ("started", "saved", "detected", "follower", "success")):
+                color = Colors.GREEN
+            print(f"\n{color}{last_line}{Colors.NC}")
+
+        self.serial_mgr.clear_input()
+        self.serial_mgr.send_command(command)
+        thread = threading.Thread(
+            target=self.serial_mgr.read_sniffer_data,
+            args=(callback, stop_event),
+            daemon=True
+        )
+        thread.start()
+
+        start_time = time.time()
+        try:
+            self.wait_for_enter_with_status(
+                lambda: (
+                    f"{Colors.CYAN}{title}: {int(time.time() - start_time)}s"
+                    f" | lines: {line_count}"
+                    + (f" | last: {last_line[:40]}{Colors.NC}" if last_line else Colors.NC)
+                ),
+                poll_interval=poll_interval
+            )
+        except KeyboardInterrupt:
+            pass
+        finally:
+            print(f"\n{Colors.YELLOW}[*] Stopping {title.lower()}...{Colors.NC}")
+            self.serial_mgr.send_command(stop_command)
+            stop_event.set()
+            thread.join(timeout=2)
+            print(f"{Colors.GREEN}[+] Stopped{Colors.NC}")
+            self._pause()
     
     def do_scan(self) -> None:
         """Perform network scan."""
@@ -1219,6 +1426,44 @@ class JanOS:
             return
 
         self.network_mgr.display_networks()
+
+    def inspect_network(self) -> None:
+        """Inspect one scanned AP for MFP and uptime metadata."""
+        if self.network_mgr.network_count == 0:
+            print(f"{Colors.YELLOW}[!] No networks scanned yet. Run a scan first.{Colors.NC}")
+            print()
+            self._pause()
+            return
+
+        clear_screen()
+        UI.print_banner(self.device, self.attack_running, self.blackout_running,
+                       self.sniffer_running, self.sae_overflow_running,
+                       self.handshake_running, self.portal_running,
+                       self.evil_twin_running)
+        print(f"{Colors.CYAN}Available networks:{Colors.NC}")
+        for network in self.network_mgr.networks:
+            idx = network.get('index', '?')
+            ssid = network.get('ssid', '?')
+            channel = network.get('channel', '?')
+            rssi = network.get('rssi', '?')
+            print(f"  {Colors.GREEN}[{idx}]{Colors.NC} {ssid} {Colors.GRAY}(CH: {channel}, RSSI: {rssi}){Colors.NC}")
+        print()
+
+        try:
+            index = input("Network index to inspect: ").strip()
+        except EOFError:
+            return
+        if not index.isdigit():
+            print(f"{Colors.RED}[!] Invalid index{Colors.NC}")
+            time.sleep(1)
+            return
+
+        self.run_simple_command(f"inspect_network {index}", "INSPECT NETWORK", max_wait=5, idle_timeout=0.8)
+
+    def unselect_networks(self) -> None:
+        """Clear selected networks on the board and in local state."""
+        self.network_mgr.set_selected_networks("")
+        self.run_simple_command("unselect_networks", "UNSELECT NETWORKS", max_wait=4, idle_timeout=0.8)
     
     def select_networks_menu(self) -> None:
         """Network selection menu."""
@@ -1344,7 +1589,7 @@ class JanOS:
             print(f"{Colors.GREEN}[+] Sniffer stopped ({self.sniffer_packets} packets){Colors.NC}")
             input("Press Enter to continue...")
     
-    def show_sniffer_results(self) -> None:
+    def show_sniffer_results(self, vendor: bool = False) -> None:
         """Show sniffer AP-client results."""
         clear_screen()
         UI.print_banner(self.device, self.attack_running, self.blackout_running, 
@@ -1363,13 +1608,14 @@ class JanOS:
             time.sleep(1)
         
         # Request results from ESP32
+        command = "show_sniffer_results_vendor" if vendor else "show_sniffer_results"
         print(f"{Colors.CYAN}[*] Requesting results...{Colors.NC}")
-        self.serial_mgr.send_command("show_sniffer_results")
+        self.serial_mgr.send_command(command)
         
         lines = self.serial_mgr.read_until_silence(max_wait=8, idle_timeout=1.0)
         filtered = [
             line for line in lines
-            if line and not line.startswith(">") and "show_sniffer_results" not in line.lower()
+            if line and not line.startswith(">") and command not in line.lower()
         ]
 
         ap_count = 0
@@ -1407,7 +1653,7 @@ class JanOS:
         print()
         input("Press Enter to continue...")
     
-    def show_sniffer_probes(self) -> None:
+    def show_sniffer_probes(self, vendor: bool = False, numbered: bool = False) -> None:
         """Show probe requests captured by sniffer."""
         clear_screen()
         UI.print_banner(self.device, self.attack_running, self.blackout_running, 
@@ -1426,9 +1672,14 @@ class JanOS:
                 self.sniffer_thread.join(timeout=2)
             time.sleep(1)
         
+        if numbered:
+            command = "list_probes_vendor" if vendor else "list_probes"
+        else:
+            command = "show_probes_vendor" if vendor else "show_probes"
+
         # Request probe results from ESP32
         print(f"{Colors.CYAN}[*] Requesting probe requests from device...{Colors.NC}")
-        self.serial_mgr.send_command("show_probes")
+        self.serial_mgr.send_command(command)
         
         lines = self.serial_mgr.read_until_silence(max_wait=8, idle_timeout=1.0)
         probe_lines = []
@@ -1436,7 +1687,7 @@ class JanOS:
         for line in lines:
             if not line or line.startswith(">"):
                 continue
-            if "show_probes" in line.lower():
+            if command in line.lower():
                 continue
             total_match = re.search(r'Probe requests:\s*(\d+)', line, re.IGNORECASE)
             if total_match:
@@ -1461,6 +1712,53 @@ class JanOS:
         
         print()
         input("Press Enter to continue...")
+
+    def clear_sniffer_results(self) -> None:
+        """Clear captured sniffer clients/probes/counters on the board."""
+        self.sniffer_packets = 0
+        self.last_sniffer_line = ""
+        self.run_simple_command("clear_sniffer_results", "CLEAR SNIFFER", max_wait=4, idle_timeout=0.8)
+
+    def start_sniffer_dog(self) -> None:
+        """Start Sniffer Dog monitor until Enter is pressed."""
+        self.monitor_command("start_sniffer_dog", "SNIFFER DOG")
+
+    def start_deauth_detector(self) -> None:
+        """Start deauth detector, optionally constrained to network indexes."""
+        try:
+            indexes = input("Indexes to monitor (Enter = all channels): ").strip()
+        except EOFError:
+            return
+        command = f"deauth_detector {indexes}".strip()
+        self.monitor_command(command, "DEAUTH DETECTOR")
+
+    def start_ap_locator(self) -> None:
+        """Start AP locator for exactly one selected network."""
+        if not self.network_mgr.selected_networks:
+            print(f"{Colors.YELLOW}[!] Select exactly one network first.{Colors.NC}")
+            self._pause()
+            return
+        if len(self.network_mgr.selected_networks.split()) != 1:
+            print(f"{Colors.YELLOW}[!] AP locator needs exactly one selected network.{Colors.NC}")
+            self._pause()
+            return
+        self.monitor_command("start_ap_locator", "AP LOCATOR")
+
+    def start_packet_monitor(self) -> None:
+        """Monitor packets per second on one WiFi channel."""
+        try:
+            channel = input("Channel: ").strip()
+        except EOFError:
+            return
+        if not channel.isdigit():
+            print(f"{Colors.RED}[!] Invalid channel{Colors.NC}")
+            time.sleep(1)
+            return
+        self.monitor_command(f"packet_monitor {channel}", "PACKET MONITOR")
+
+    def start_channel_view(self) -> None:
+        """Start continuous WiFi channel utilization view."""
+        self.monitor_command("channel_view", "CHANNEL VIEW")
     
     def start_deauth_attack(self) -> None:
         """Start deauth attack."""
@@ -3367,6 +3665,10 @@ class JanOS:
                 self.run_gps_module_command("gps_set cap")
             elif choice == '6':
                 self.start_gps_raw_monitor()
+            elif choice == '7':
+                self.set_external_gps_position(cap=False)
+            elif choice == '8':
+                self.set_external_gps_position(cap=True)
             elif choice == '0':
                 return
             else:
@@ -3439,6 +3741,141 @@ class JanOS:
                 print(f"{Colors.GREEN}[+] Last log file: {self.wardrive_last_file}{Colors.NC}")
             input("Press Enter to continue...")
 
+    def start_wardrive_promisc(self, trace: bool = False) -> None:
+        """Start Wardrive 2.0 promisc mode."""
+        command = "start_wardrive_promisc_trace" if trace else "start_wardrive_promisc"
+        title = "WARDRIVE PROMISC TRACE" if trace else "WARDRIVE PROMISC"
+        self.monitor_command(command, title)
+
+    def wardrive_blacklist_menu(self) -> None:
+        """Manage wardrive MAC blacklist."""
+        UI.print_compact_box(
+            "WARDRIVE BLACKLIST",
+            [
+                f"{Colors.GREEN}1){Colors.NC} List",
+                f"{Colors.GREEN}2){Colors.NC} Add MAC",
+                f"{Colors.GREEN}3){Colors.NC} Remove MAC",
+                f"{Colors.GREEN}4){Colors.NC} Clear",
+                f"{Colors.GRAY}0){Colors.NC} Back",
+            ],
+            Colors.CYAN
+        )
+        try:
+            choice = input("Select option: ").strip()
+        except EOFError:
+            return
+        if choice == '1':
+            self.run_simple_command("wardrive_blacklist list", "WARD BLACKLIST", max_wait=5, idle_timeout=0.8)
+        elif choice == '2':
+            self.prompt_and_run_command("wardrive_blacklist add", "WARD BLACKLIST", "MAC: ", max_wait=5)
+        elif choice == '3':
+            self.prompt_and_run_command("wardrive_blacklist remove", "WARD BLACKLIST", "MAC: ", max_wait=5)
+        elif choice == '4':
+            self.run_simple_command("wardrive_blacklist clear", "WARD BLACKLIST", max_wait=5, idle_timeout=0.8)
+
+    def wardrive_config_menu(self) -> None:
+        """Wardrive 2.0 config submenu."""
+        while True:
+            try:
+                clear_screen()
+                UI.print_banner(self.device, self.attack_running, self.blackout_running,
+                               self.sniffer_running, self.sae_overflow_running,
+                               self.handshake_running, self.portal_running,
+                               self.evil_twin_running)
+                UI.print_wardrive_config_menu()
+                choice = input("Select option: ").strip()
+                if choice == '1':
+                    self.run_simple_command("get_wardrive_config", "WARDRIVE CONFIG", max_wait=5, idle_timeout=0.8)
+                elif choice == '2':
+                    self.prompt_and_run_command(
+                        "set_wardrive_bands",
+                        "WARD BANDS",
+                        "Bands (wifi24,wifi5,ble): ",
+                        default_args="wifi24,wifi5,ble",
+                        max_wait=5
+                    )
+                elif choice == '3':
+                    try:
+                        mode = input("Mode (popular/all/custom): ").strip() or "popular"
+                        custom = ""
+                        if mode == "custom":
+                            custom = input("Channels (e.g. 1:6:11:36): ").strip()
+                    except EOFError:
+                        return
+                    command = f"set_wardrive_channels {mode} {custom}".strip()
+                    self.run_simple_command(command, "WARD CHANNELS", max_wait=5, idle_timeout=0.8)
+                elif choice == '4':
+                    try:
+                        target = input("Target (wifi/ble): ").strip() or "wifi"
+                        delta = input("Delta 0-50: ").strip() or "5"
+                    except EOFError:
+                        return
+                    self.run_simple_command(
+                        f"set_wardrive_rssi_delta {target} {delta}",
+                        "WARD RSSI DELTA",
+                        max_wait=5,
+                        idle_timeout=0.8
+                    )
+                elif choice == '5':
+                    self.prompt_and_run_command(
+                        "set_wardrive_memcap",
+                        "WARD MEMCAP",
+                        "Memory cap (1000-200000): ",
+                        default_args="40000",
+                        max_wait=5
+                    )
+                elif choice == '6':
+                    self.prompt_and_run_command(
+                        "set_wardrive_cooldown",
+                        "WARD COOLDOWN",
+                        "Cooldown seconds (0-600): ",
+                        default_args="0",
+                        max_wait=5
+                    )
+                elif choice == '7':
+                    clear_screen()
+                    self.wardrive_blacklist_menu()
+                elif choice == '8':
+                    self.prompt_and_run_command(
+                        "set_antisurv_sensitivity",
+                        "ANTI-SURV SENSITIVITY",
+                        "Sensitivity (low/med/high): ",
+                        default_args="med",
+                        max_wait=5
+                    )
+                elif choice == '0':
+                    return
+                else:
+                    print(f"{Colors.RED}Invalid option{Colors.NC}")
+                    time.sleep(1)
+            except (KeyboardInterrupt, EOFError):
+                print(f"\n{Colors.YELLOW}[*] Returning to wardrive menu{Colors.NC}")
+                time.sleep(1)
+                return
+
+    def set_external_gps_position(self, cap: bool = False) -> None:
+        """Set or clear external GPS position."""
+        command_root = "set_gps_position_cap" if cap else "set_gps_position"
+        title = "CAP GPS POSITION" if cap else "GPS POSITION"
+        try:
+            value = input("lat lon [alt] [acc] (Enter = clear fix): ").strip()
+        except EOFError:
+            return
+        command = f"{command_root} {value}".strip()
+        self.run_simple_command(command, title, max_wait=5, idle_timeout=0.8)
+
+    def scan_ble_devices(self) -> None:
+        """Run one-time BLE scan."""
+        self.run_simple_command("scan_bt", "BLE SCAN", max_wait=14, idle_timeout=1.5)
+
+    def start_airtag_scan(self) -> None:
+        """Start continuous AirTag/SmartTag scan."""
+        self.monitor_command("scan_airtag", "AIRTAG SCAN")
+
+    def start_antisurveillance(self) -> None:
+        """Start anti-surveillance follower detection."""
+        self.monitor_command("start_antisurveillance", "ANTI-SURVEILLANCE")
+
     def wardrive_menu(self) -> None:
         """Wardrive submenu."""
         while True:
@@ -3456,6 +3893,18 @@ class JanOS:
                     self.start_wardrive()
                 elif choice == '2':
                     self.gps_setup_menu()
+                elif choice == '3':
+                    self.start_wardrive_promisc(trace=False)
+                elif choice == '4':
+                    self.start_wardrive_promisc(trace=True)
+                elif choice == '5':
+                    self.wardrive_config_menu()
+                elif choice == '6':
+                    self.start_antisurveillance()
+                elif choice == '7':
+                    self.scan_ble_devices()
+                elif choice == '8':
+                    self.start_airtag_scan()
                 elif choice == '0':
                     return
                 else:
@@ -3609,6 +4058,8 @@ class JanOS:
                     self.list_dir_entries("list_dir /sdcard/lab/handshakes", "SD HANDSHAKES", "lab/handshakes")
                 elif choice == '5':
                     self.list_dir_entries("list_dir /sdcard/lab/pcaps", "SD PCAPS", "lab/pcaps", (".pcap",))
+                elif choice == '6':
+                    self.run_simple_command("sd_status", "SD STATUS", max_wait=4, idle_timeout=0.8)
                 elif choice == '0':
                     return
                 else:
@@ -3816,6 +4267,10 @@ class JanOS:
                     self.show_scan_results()
                 elif choice == '3':
                     self.select_networks_menu()
+                elif choice == '4':
+                    self.inspect_network()
+                elif choice == '5':
+                    self.unselect_networks()
                 elif choice == '0':
                     return  # Back to main menu
                 else:
@@ -3850,6 +4305,24 @@ class JanOS:
                     self.show_sniffer_results()
                 elif choice == '3':
                     self.show_sniffer_probes()
+                elif choice == '4':
+                    self.show_sniffer_results(vendor=True)
+                elif choice == '5':
+                    self.show_sniffer_probes(vendor=True)
+                elif choice == '6':
+                    self.show_sniffer_probes(numbered=True)
+                elif choice == '7':
+                    self.clear_sniffer_results()
+                elif choice == '8':
+                    self.start_sniffer_dog()
+                elif choice == '9':
+                    self.start_deauth_detector()
+                elif choice == '10':
+                    self.start_ap_locator()
+                elif choice == '11':
+                    self.start_packet_monitor()
+                elif choice == '12':
+                    self.start_channel_view()
                 elif choice == '0':
                     return  # Back to main menu
                 else:
@@ -3987,6 +4460,207 @@ class JanOS:
                 print(line)
         print()
         input("Press Enter to continue...")
+
+    def system_help(self) -> None:
+        """Show board help."""
+        self.run_simple_command("help", "BOARD HELP", max_wait=10, idle_timeout=1.2)
+
+    def system_raw_command(self) -> None:
+        """Send a raw UART command."""
+        try:
+            command = input("UART command: ").strip()
+        except EOFError:
+            return
+        if not command:
+            return
+        stream = input("Stream until Enter? [y/N]: ").strip().lower()
+        if stream in ['y', 'yes']:
+            self.monitor_command(command, "RAW COMMAND")
+        else:
+            self.run_simple_command(command, "RAW COMMAND", max_wait=10, idle_timeout=1.2)
+
+    def system_vendor_setting(self) -> None:
+        """Read or set vendor lookup."""
+        self.prompt_and_run_command(
+            "vendor",
+            "VENDOR LOOKUP",
+            "Action (read/set on/set off): ",
+            default_args="read",
+            max_wait=5
+        )
+
+    def system_display_setting(self) -> None:
+        """Read or set display type."""
+        self.prompt_and_run_command(
+            "display",
+            "DISPLAY",
+            "Action (read/set auto|ssd1306|sh1107|sh1106|unit_lcd): ",
+            default_args="read",
+            max_wait=5
+        )
+
+    def system_led_setting(self) -> None:
+        """Read or set LED state/level."""
+        self.prompt_and_run_command(
+            "led",
+            "LED",
+            "Action (read/set on|off/level 1-100): ",
+            default_args="read",
+            max_wait=5
+        )
+
+    def system_channel_time(self) -> None:
+        """Read or set scan channel dwell time."""
+        self.prompt_and_run_command(
+            "channel_time",
+            "CHANNEL TIME",
+            "Action (read min/read max/set min 120/set max 400): ",
+            default_args="read min",
+            max_wait=5
+        )
+
+    def subghz_rx(self) -> None:
+        """Start SubGHz RX monitor."""
+        try:
+            args = input("Args (Enter = default, e.g. raw rssi=-80): ").strip()
+        except EOFError:
+            return
+        self.monitor_command(f"subghz_rx {args}".strip(), "SUBGHZ RX", stop_command="subghz_stop")
+
+    def subghz_tx(self) -> None:
+        """Replay a stored SubGHz signal."""
+        self.prompt_and_run_command(
+            "subghz_tx",
+            "SUBGHZ TX",
+            "Args (<index> <mem|sd>|tesla): ",
+            max_wait=6
+        )
+
+    def subghz_freq_analyzer(self) -> None:
+        """Start SubGHz frequency analyzer."""
+        try:
+            args = input("Args (Enter = default): ").strip()
+        except EOFError:
+            return
+        self.monitor_command(
+            f"subghz_freq_analyzer {args}".strip(),
+            "SUBGHZ FREQ ANALYZER",
+            stop_command="subghz_stop"
+        )
+
+    def subghz_scanner(self) -> None:
+        """Start SubGHz scanner."""
+        try:
+            args = input("Args (Enter = default, e.g. dwell=80 edges=4 rssi=-75 fast): ").strip()
+        except EOFError:
+            return
+        self.monitor_command(f"subghz_scanner {args}".strip(), "SUBGHZ SCANNER", stop_command="subghz_stop")
+
+    def subghz_signal_info(self) -> None:
+        """Show details for a stored SubGHz signal."""
+        self.prompt_and_run_command(
+            "subghz_info",
+            "SUBGHZ INFO",
+            "Args (<index> <mem|sd>): ",
+            max_wait=6
+        )
+
+    def subghz_save_signal(self) -> None:
+        """Copy a memory signal to SD."""
+        self.prompt_and_run_command(
+            "subghz_save",
+            "SUBGHZ SAVE",
+            "Memory index or all: ",
+            max_wait=6
+        )
+
+    def subghz_delete_signal(self) -> None:
+        """Delete a SubGHz SD signal."""
+        self.prompt_and_run_command(
+            "subghz_delete",
+            "SUBGHZ DELETE",
+            "SD index: ",
+            max_wait=6
+        )
+
+    def subghz_rename_signal(self) -> None:
+        """Rename a SubGHz SD signal."""
+        self.prompt_and_run_command(
+            "subghz_rename",
+            "SUBGHZ RENAME",
+            "Args (<sd_idx> <new_name>): ",
+            max_wait=6
+        )
+
+    def subghz_debug(self) -> None:
+        """Toggle or read SubGHz debug options."""
+        self.prompt_and_run_command(
+            "subghz_debug",
+            "SUBGHZ DEBUG",
+            "Args (Enter = status, e.g. kat_dbg on): ",
+            max_wait=5
+        )
+
+    def subghz_menu(self) -> None:
+        """SubGHz submenu."""
+        while True:
+            try:
+                clear_screen()
+                UI.print_banner(self.device, self.attack_running, self.blackout_running,
+                              self.sniffer_running, self.sae_overflow_running,
+                              self.handshake_running, self.portal_running,
+                              self.evil_twin_running)
+                UI.print_subghz_menu()
+                choice = input("Select option: ").strip()
+                if choice == '1':
+                    self.run_simple_command("subghz_status", "SUBGHZ STATUS", max_wait=5, idle_timeout=0.8)
+                elif choice == '2':
+                    self.prompt_and_run_command("subghz_freq", "SUBGHZ FREQ", "MHz (Enter = read): ", max_wait=5)
+                elif choice == '3':
+                    self.subghz_rx()
+                elif choice == '4':
+                    self.subghz_tx()
+                elif choice == '5':
+                    self.monitor_command("subghz_jam", "SUBGHZ JAM", stop_command="subghz_stop")
+                elif choice == '6':
+                    self.subghz_freq_analyzer()
+                elif choice == '7':
+                    self.subghz_scanner()
+                elif choice == '8':
+                    self.monitor_command("subghz_weather", "SUBGHZ WEATHER", stop_command="subghz_stop")
+                elif choice == '9':
+                    self.monitor_command("subghz_tpms", "SUBGHZ TPMS", stop_command="subghz_stop")
+                elif choice == '10':
+                    self.run_simple_command("subghz_list mem", "SUBGHZ MEM", max_wait=6, idle_timeout=0.8)
+                elif choice == '11':
+                    self.run_simple_command("subghz_list sd", "SUBGHZ SD", max_wait=6, idle_timeout=0.8)
+                elif choice == '12':
+                    self.subghz_signal_info()
+                elif choice == '13':
+                    self.subghz_save_signal()
+                elif choice == '14':
+                    self.subghz_delete_signal()
+                elif choice == '15':
+                    self.subghz_rename_signal()
+                elif choice == '16':
+                    self.run_simple_command("subghz_clear", "SUBGHZ CLEAR", max_wait=5, idle_timeout=0.8)
+                elif choice == '17':
+                    self.prompt_and_run_command("subghz_protocols", "SUBGHZ PROTOCOLS", "Filter (Enter = all): ", max_wait=8)
+                elif choice == '18':
+                    self.run_simple_command("subghz_keys", "SUBGHZ KEYS", max_wait=8, idle_timeout=1.0)
+                elif choice == '19':
+                    self.subghz_debug()
+                elif choice == '20':
+                    self.run_simple_command("subghz_stop", "SUBGHZ STOP", max_wait=4, idle_timeout=0.8)
+                elif choice == '0':
+                    return
+                else:
+                    print(f"{Colors.RED}Invalid option{Colors.NC}")
+                    time.sleep(1)
+            except (KeyboardInterrupt, EOFError):
+                print(f"\n{Colors.YELLOW}[*] Returning to main menu{Colors.NC}")
+                time.sleep(1)
+                return
     
     def system_menu(self) -> None:
         """System submenu."""
@@ -4007,6 +4681,24 @@ class JanOS:
                     self.system_ping()
                 elif choice == '3':
                     self.system_list_sd()
+                elif choice == '4':
+                    self.run_simple_command("version", "VERSION", max_wait=4, idle_timeout=0.8)
+                elif choice == '5':
+                    self.run_simple_command("board_name", "BOARD NAME", max_wait=4, idle_timeout=0.8)
+                elif choice == '6':
+                    self.run_simple_command("sd_status", "SD STATUS", max_wait=4, idle_timeout=0.8)
+                elif choice == '7':
+                    self.system_help()
+                elif choice == '8':
+                    self.system_vendor_setting()
+                elif choice == '9':
+                    self.system_display_setting()
+                elif choice == '10':
+                    self.system_led_setting()
+                elif choice == '11':
+                    self.system_channel_time()
+                elif choice == '12':
+                    self.system_raw_command()
                 elif choice == '0':
                     return  # Back to main menu
                 else:
@@ -4089,6 +4781,10 @@ class JanOS:
                     self.wardrive_menu()
                 elif choice == '5':
                     self.sd_data_menu()
+                elif choice == '6':
+                    self.system_menu()
+                elif choice == '7':
+                    self.subghz_menu()
                 elif choice in ['0', 'q', 'Q']:
                     if self.attack_running or self.blackout_running or self.sniffer_running or self.sae_overflow_running or self.handshake_running or self.portal_running or self.evil_twin_running or self.wardrive_running or self.beacon_spam_running or self.arp_running or self.mitm_running:
                         print()

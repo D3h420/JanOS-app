@@ -17,13 +17,17 @@ Check our [LAB5 Discord community](https://discord.gg/57wmJzzR8C).
 - `Attacks`
 - `Wardrive`
 - `SD data`
+- `System`
+- `SubGHz`
 
 The script sends text commands to projectZero over UART (115200), parses responses, and displays live status output.
 
 ## ✅ Current Features
 
 - WiFi scanning and selection (`scan_networks`, `show_scan_results`, `select_networks`)
-- sniffer mode with results and probe request view
+- WiFi inspection (`inspect_network`) and selection reset (`unselect_networks`)
+- sniffer mode with results, vendor view, probe request view, probe list, clear results
+- live WiFi monitors (`start_sniffer_dog`, `deauth_detector`, `start_ap_locator`, `packet_monitor`, `channel_view`)
 
 🌐 Global WiFi attacks:
 - `Deauth`
@@ -41,7 +45,11 @@ The script sends text commands to projectZero over UART (115200), parses respons
 
 🧩 Additional modules:
 - `wardrive + GPS setup`
+- Wardrive 2.0 (`start_wardrive_promisc`, trace mode, config, blacklist, anti-surveillance)
+- BLE helpers (`scan_bt`, `scan_airtag`)
 - `SD data browser`
+- `System` (`version`, `board_name`, `sd_status`, `help`, raw command, vendor/display/LED/channel-time controls)
+- `SubGHz` status, RX/TX, analyzer, scanner, weather/TPMS listen, signal library operations
 - `htmls`
 - `evil twin & portal` (`show_pass`)
 - `warlogs`
