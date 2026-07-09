@@ -529,10 +529,8 @@ class UI:
             f"{Colors.GREEN}14){Colors.NC} Delete SD signal",
             f"{Colors.GREEN}15){Colors.NC} Rename SD signal",
             f"{Colors.GREEN}16){Colors.NC} Clear memory",
-            f"{Colors.GREEN}17){Colors.NC} Protocols",
-            f"{Colors.GREEN}18){Colors.NC} Keys",
-            f"{Colors.GREEN}19){Colors.NC} Debug",
-            f"{Colors.RED}20){Colors.NC} Stop SubGHz",
+            f"{Colors.GREEN}17){Colors.NC} Debug",
+            f"{Colors.RED}18){Colors.NC} Stop SubGHz",
             "",
             f"{Colors.GRAY}0){Colors.NC} Back to main menu",
         ]
@@ -4723,12 +4721,8 @@ class JanOS:
                 elif choice == '16':
                     self.run_simple_command("subghz_clear", "SUBGHZ CLEAR", max_wait=5, idle_timeout=0.8)
                 elif choice == '17':
-                    self.prompt_and_run_command("subghz_protocols", "SUBGHZ PROTOCOLS", "Filter (Enter = all): ", max_wait=8)
-                elif choice == '18':
-                    self.run_simple_command("subghz_keys", "SUBGHZ KEYS", max_wait=8, idle_timeout=1.0)
-                elif choice == '19':
                     self.subghz_debug()
-                elif choice == '20':
+                elif choice == '18':
                     self.run_simple_command("subghz_stop", "SUBGHZ STOP", max_wait=4, idle_timeout=0.8)
                 elif choice == '0':
                     return
