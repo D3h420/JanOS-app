@@ -6,11 +6,10 @@
 [![Last commit](https://img.shields.io/github/last-commit/D3h420/JanOS-app?style=for-the-badge)](https://github.com/D3h420/JanOS-app/commits/main)
 
 A terminal-based Python controller for [projectZero (JanOS)](https://github.com/C5Lab/projectZero) firmware over UART ⚡
-Check our [LAB5 Discord community](https://discord.gg/57wmJzzR8C).
 
 ## 🧭 What This Script Does
 
-`JanOS_app.py` connects to a [projectZero (aka JanOS)](https://github.com/C5Lab/projectZero) device through a serial port and provides an interactive menu:
+`JanOS_app.py` connects to a LAB5 devices through a serial port and provides an interactive menu:
 
 - `Scan`
 - `Sniffer`
@@ -21,41 +20,6 @@ Check our [LAB5 Discord community](https://discord.gg/57wmJzzR8C).
 - `SubGHz`
 
 The script sends text commands to projectZero over UART (115200), parses responses, and displays live status output.
-
-## ✅ Current Features
-
-- WiFi scanning and selection (`scan_networks`, `show_scan_results`, `select_networks`)
-- WiFi inspection (`inspect_network`) and selection reset (`unselect_networks`)
-- sniffer mode with results, vendor view, probe request view, probe list, clear results
-- live WiFi monitors (`start_sniffer_dog`, `deauth_detector`, `start_ap_locator`, `packet_monitor`, `channel_view`)
-
-🌐 Global WiFi attacks:
-- `Deauth`
-- `Blackout`
-- `WPA3 SAE Overflow`
-- `Handshaker`
-- `Portal`
-- `Evil Twin`
-- `Beacon spam` (with `ssids.txt` management)
-
-🕸️ Inside network attacks:
-- `ARP` (`list_hosts` + `arp_ban`)
-- `MITM` (`start_pcap net`)
-- `Stop ALL actions`
-
-🧩 Additional modules:
-- `wardrive + GPS setup`
-- Wardrive 2.0 (`start_wardrive_promisc`, trace mode, config, blacklist, anti-surveillance)
-- BLE helpers (`scan_bt`, `scan_airtag`)
-- `SD data browser`
-- `System` (`version`, `board_name`, `sd_status`, `help`, raw command, vendor/display/LED/channel-time controls)
-- `SubGHz` workflows: Read a remote, find and capture, scan active frequencies, unsaved captures, saved library, weather/TPMS sensors, Tesla replay, jammer, radio tools
-- `htmls`
-- `evil twin & portal` (`show_pass`)
-- `warlogs`
-- `handshakes`
-- `pcap` (`/sdcard/lab/pcaps`, `.pcap` files only)
-- `subghz` (`subghz_list sd` + `subghz_delete`)
 
 ## 📦 Requirements
 
@@ -99,11 +63,6 @@ All paths below are on the JanOS device SD card (under `/sdcard`):
 - `/lab/handshakes/*.pcap` - captured WPA handshake files.
 - `/lab/pcaps/*.pcap` - packet captures from `start_pcap` (radio/net mode, including MITM workflow).
 - `/lab/subghz/` - saved SubGHz radio signals
-
-SubGHz uses two signal stores:
-
-- `mem` - volatile captures from `subghz_rx` and Hunter mode; clear with `subghz_clear`, promote to SD with `subghz_save`.
-- `sd` - persistent `/lab/subghz/*.sub` library; inspect, replay, rename, or delete via the SubGHz and SD data menus.
 
 ## 🚧 Status
 
