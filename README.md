@@ -1,5 +1,5 @@
-# 🚀 JanOS App
-<img width="1536" height="1024" alt="LAB5-projectZero" src="https://github.com/user-attachments/assets/32b9737d-cada-4d05-b972-6643e36cc2bc" />
+# 🚀 JanOS-app
+<img width="1983" height="793" alt="JanOS-app" src="https://github.com/user-attachments/assets/a85d787e-7214-41dd-8386-25f5118f7eee" />
 
 [![Discord](https://img.shields.io/badge/Discord-LAB5-5865F2?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/57wmJzzR8C)
 [![GitHub stars](https://img.shields.io/github/stars/D3h420/JanOS-app?style=for-the-badge)](https://github.com/D3h420/JanOS-app/stargazers)
