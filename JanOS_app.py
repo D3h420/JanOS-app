@@ -15,6 +15,7 @@ from serial.tools import list_ports
 import threading
 import select
 import termios
+import tty
 import fcntl
 import tempfile
 import re
@@ -169,6 +170,104 @@ def print_usage() -> None:
     print("  ./JanOS_app.py /dev/ttyUSB0        # Linux")
     print("  ./JanOS_app.py /dev/cu.usbserial-0001  # macOS")
     print()
+
+JANOS_LOGO_LINES = [
+    "      ██╗ █████╗ ███╗   ██╗ ██████╗ ███████╗",
+    "      ██║██╔══██╗████╗  ██║██╔═══██╗██╔════╝",
+    "      ██║███████║██╔██╗ ██║██║   ██║███████╗",
+    " ██   ██║██╔══██║██║╚██╗██║██║   ██║╚════██║",
+    " ╚█████╔╝██║  ██║██║ ╚████║╚██████╔╝███████║",
+    "  ╚════╝ ╚═╝  ╚═╝╚═╝  ╚═══╝ ╚═════╝ ╚══════╝",
+]
+INTRO_SCAN_WIDTH = 14
+
+def should_show_intro() -> bool:
+    """Return True when the startup intro can be shown safely."""
+    if os.environ.get("JANOS_SKIP_INTRO"):
+        return False
+    if os.environ.get("TERM") in ("", "dumb"):
+        return False
+    return sys.stdin.isatty() and sys.stdout.isatty()
+
+def _render_intro_frame(
+    reveal_columns: int,
+    frame: int = 0,
+    prompt: bool = False,
+) -> None:
+    """Render one startup intro frame."""
+    print("\033[2J\033[H", end="")
+    print()
+    print()
+
+    for idx, line in enumerate(JANOS_LOGO_LINES):
+        visible_count = max(0, min(len(line), reveal_columns - idx * 2))
+        rendered = []
+        scan_position = frame % (len(line) + INTRO_SCAN_WIDTH)
+        for col, ch in enumerate(line):
+            if col >= visible_count:
+                rendered.append(" ")
+                continue
+            if ch == " ":
+                rendered.append(ch)
+                continue
+
+            distance = abs(col + idx * 2 - scan_position)
+            if distance <= 1:
+                color = Colors.WHITE
+            elif distance <= 3:
+                color = Colors.CYAN
+            elif distance <= 6:
+                color = Colors.BLUE
+            else:
+                color = Colors.DIM + Colors.CYAN
+            rendered.append(f"{color}{Colors.BOLD}{ch}{Colors.NC}")
+        print(center_text("".join(rendered)))
+
+    print()
+    print(center_text(f"{Colors.MAGENTA}{Colors.BOLD}LAB5{Colors.NC}"))
+    print()
+    print(center_text(f"{Colors.WHITE}PRESS ENTER{Colors.NC}"))
+
+def _intro_enter_pressed() -> bool:
+    """Return True when Enter is waiting on stdin."""
+    fd = sys.stdin.fileno()
+    readable, _, _ = select.select([fd], [], [], 0)
+    if not readable:
+        return False
+    try:
+        chars = os.read(fd, 32)
+    except BlockingIOError:
+        return False
+    return b"\n" in chars or b"\r" in chars
+
+def show_startup_intro() -> None:
+    """Show animated JanOS intro before the interactive device selector."""
+    if not should_show_intro():
+        return
+
+    max_width = max(len(line) for line in JANOS_LOGO_LINES)
+    target_width = max_width + len(JANOS_LOGO_LINES) * 2
+    old_term = termios.tcgetattr(sys.stdin)
+    try:
+        tty.setcbreak(sys.stdin.fileno())
+        print("\033[?25l", end="", flush=True)
+        frame = 0
+        for columns in range(0, target_width + 1, 3):
+            _render_intro_frame(columns, frame)
+            if _intro_enter_pressed():
+                return
+            frame += 1
+            time.sleep(0.035)
+
+        while True:
+            _render_intro_frame(target_width, frame, prompt=True)
+            if _intro_enter_pressed():
+                return
+            frame += 1
+            time.sleep(0.07)
+    finally:
+        termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_term)
+        print("\033[?25h", end="", flush=True)
 
 # ============================================================================
 # UI Components
@@ -574,8 +673,8 @@ def select_device_interactive() -> str:
     """Interactive ESP32-C5 device selector."""
     while True:
         clear_screen()
-        UI.print_banner("Device setup", False, False, False, False, False, False, False)
-        print(f"{Colors.GRAY}Select the ESP32-C5 device to connect{Colors.NC}")
+        print(f"{Colors.CYAN}{Colors.BOLD}JanOS device setup{Colors.NC}")
+        print(f"{Colors.GRAY}Select ESP32-C5 UART device{Colors.NC}")
         print()
         
         ports = list_serial_devices()
@@ -597,17 +696,14 @@ def select_device_interactive() -> str:
         print(f"{Colors.CYAN}Available USB/UART devices:{Colors.NC}")
         for idx, port in enumerate(ports, 1):
             mark = (
-                f"{Colors.GREEN}ESP32-C5 candidate{Colors.NC}"
+                f"{Colors.GREEN}likely ESP32-C5{Colors.NC}"
                 if is_probable_esp32(port)
-                else f"{Colors.GRAY}other USB/UART{Colors.NC}"
+                else f"{Colors.GRAY}other{Colors.NC}"
             )
             desc = port.description or "Unknown"
             manuf = port.manufacturer or ""
-            hwid = port.hwid or ""
             extra = f" - {manuf}" if manuf else ""
             print(f"  {idx}) {port.device}  {Colors.GRAY}{desc}{extra}{Colors.NC}  [{mark}]")
-            if hwid:
-                print(f"      {Colors.DIM}{hwid}{Colors.NC}")
         
         print()
         choice = input("Select device number, [r] rescan, [m] manual, [q] quit: ").strip().lower()
@@ -5222,6 +5318,7 @@ def main():
         device = sys.argv[1]
     
     if not device:
+        show_startup_intro()
         device = select_device_interactive()
     
     # Create and run application
