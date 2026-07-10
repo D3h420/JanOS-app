@@ -8,17 +8,9 @@
 
 ## 🧭 What This Script Does
 
-A terminal-based Python controller for [projectZero (JanOS)](https://github.com/C5Lab/projectZero) firmware over UART ⚡
-`JanOS_app.py` connects to a LAB5 devices through a serial port and provides an interactive menu:
+A terminal-based Python controller for [projectZero (JanOS)](https://github.com/C5Lab/projectZero) firmware over UART.
 
-- `Scan`
-- `Sniffer`
-- `Attacks`
-- `Wardrive`
-- `SD data`
-- `System`
-- `SubGHz`
-
+ `JanOS_app.py` connects to a LAB5 devices through a serial port and provides an interactive menu.
 The script sends text commands to projectZero over UART (115200), parses responses, and displays live status output.
 
 ## 📦 Requirements
