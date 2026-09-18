@@ -21,7 +21,7 @@ A terminal-based Python controller for [projectZero (JanOS)](https://github.com/
 Install dependency:
 
 ```bash
-pip3 install pyserial
+python3 -m pip install -r requirements.txt
 ```
 
 ## ▶️ Usage
@@ -32,10 +32,14 @@ cd JanOS-app
 python3 JanOS_app.py
 ```
 
-Or run directly with a device path:
+When started without arguments, the app waits for MonsterC5 and automatically
+opens its USB UART port. On macOS it prefers the `/dev/cu.usbserial-*` call-out
+device, so `sudo` and a manually supplied port are not required.
+
+An explicit device path is still available as an override:
 
 ```bash
-python3 JanOS_app.py /dev/ttyUSB0
+python3 JanOS_app.py /dev/cu.usbserial-230
 ```
 
 ## 💾 SD Card Files

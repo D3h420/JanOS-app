@@ -10,13 +10,16 @@ Example: ./JanOS_app.py /dev/ttyUSB0
 import sys
 import os
 import time
-import serial
-from serial.tools import list_ports
+import glob
+try:
+    import serial
+    from serial.tools import list_ports
+except ModuleNotFoundError:
+    print("Missing dependency: pyserial")
+    print("Install it once with: python3 -m pip install pyserial")
+    sys.exit(1)
 import threading
 import select
-import termios
-import tty
-import fcntl
 import tempfile
 import re
 import readline  # For better input handling
@@ -28,7 +31,7 @@ from typing import List, Dict, Tuple, Optional, Any
 # Configuration
 # ============================================================================
 BAUD_RATE = 115200
-SCAN_TIMEOUT = 15
+SCAN_TIMEOUT = 30
 READ_TIMEOUT = 2
 SNIFFER_UPDATE_INTERVAL = 1  # seconds
 PORTAL_UPDATE_INTERVAL = 2   # seconds for portal monitoring
@@ -155,6 +158,70 @@ def list_serial_devices() -> List:
     """Return a list of available serial devices."""
     return list(list_ports.comports())
 
+def _serial_port_score(port) -> int:
+    """Rank USB UART ports while ignoring macOS virtual/debug devices."""
+    device = (port.device or "").lower()
+    details = " ".join(filter(None, [
+        port.description,
+        port.manufacturer,
+        port.hwid,
+        getattr(port, "product", None),
+    ])).lower()
+    if any(marker in device or marker in details for marker in (
+        "bluetooth-incoming-port", "debug-console", "wireless isap",
+    )):
+        return -1
+
+    score = 0
+    if device.startswith("/dev/cu."):
+        score += 40
+    elif device.startswith("/dev/tty."):
+        score += 20
+    if any(marker in device for marker in ("usbserial", "usbmodem", "wchusb")):
+        score += 80
+    if any(marker in details for marker in (
+        "esp32", "usb serial", "cp210", "ch340", "silicon labs", "uart",
+    )):
+        score += 60
+    if getattr(port, "vid", None) is not None:
+        score += 20
+    return score
+
+def find_janos_device() -> Optional[str]:
+    """Return the best available JanOS USB UART device, if present."""
+    candidates: Dict[str, int] = {}
+    for port in list_serial_devices():
+        score = _serial_port_score(port)
+        if score > 0:
+            candidates[port.device] = max(score, candidates.get(port.device, 0))
+
+    # Some macOS USB-UART drivers create a working /dev node but expose too
+    # little metadata for pyserial's list_ports implementation. Scan the
+    # actual device nodes as a fallback instead of relying on VID/description.
+    device_patterns = (
+        "/dev/cu.usbserial*",
+        "/dev/cu.usbmodem*",
+        "/dev/cu.wchusbserial*",
+        "/dev/cu.SLAB_USBtoUART*",
+        "/dev/tty.usbserial*",
+        "/dev/tty.usbmodem*",
+        "/dev/tty.wchusbserial*",
+        "/dev/tty.SLAB_USBtoUART*",
+    )
+    for pattern in device_patterns:
+        for device in glob.glob(pattern):
+            fallback_score = 200 if device.startswith("/dev/cu.") else 180
+            candidates[device] = max(fallback_score, candidates.get(device, 0))
+
+    if not candidates:
+        return None
+    device = sorted(candidates, key=lambda item: (-candidates[item], item))[0]
+    if detect_os() == 'macos' and device.startswith('/dev/tty.'):
+        callout_device = '/dev/cu.' + device[len('/dev/tty.'):]
+        if os.path.exists(callout_device):
+            return callout_device
+    return device
+
 def print_usage() -> None:
     """Print CLI usage."""
     print(f"{Colors.CYAN}JanOS Controller{Colors.NC} - ESP32-C5 Wireless Controller")
@@ -192,7 +259,8 @@ def should_show_intro() -> bool:
 def _render_intro_frame(
     reveal_columns: int,
     frame: int = 0,
-    prompt: bool = False,
+    status: str = "",
+    connected: bool = False,
 ) -> None:
     """Render one startup intro frame."""
     print("\033[2J\033[H", end="")
@@ -226,47 +294,49 @@ def _render_intro_frame(
     print()
     print(center_text(f"{Colors.MAGENTA}{Colors.BOLD}LAB5{Colors.NC}"))
     print()
-    print(center_text(f"{Colors.WHITE}PRESS ENTER{Colors.NC}"))
+    if status:
+        color = Colors.GREEN if connected else Colors.WHITE
+        print(center_text(f"{color}{Colors.BOLD}{status}{Colors.NC}"))
 
-def _intro_enter_pressed() -> bool:
-    """Return True when Enter is waiting on stdin."""
-    fd = sys.stdin.fileno()
-    readable, _, _ = select.select([fd], [], [], 0)
-    if not readable:
-        return False
-    try:
-        chars = os.read(fd, 32)
-    except BlockingIOError:
-        return False
-    return b"\n" in chars or b"\r" in chars
-
-def show_startup_intro() -> None:
-    """Show animated JanOS intro before the interactive device selector."""
-    if not should_show_intro():
-        return
-
+def wait_for_janos_device() -> str:
+    """Animate the JanOS logo until a suitable USB UART device appears."""
     max_width = max(len(line) for line in JANOS_LOGO_LINES)
     target_width = max_width + len(JANOS_LOGO_LINES) * 2
-    old_term = termios.tcgetattr(sys.stdin)
+    interactive = should_show_intro()
+
+    if not interactive:
+        print("Waiting for MonsterC5", flush=True)
+        while True:
+            device = find_janos_device()
+            if device:
+                print(f"{Colors.GREEN}Connected!{Colors.NC} {device}")
+                return device
+            time.sleep(0.5)
+
     try:
-        tty.setcbreak(sys.stdin.fileno())
         print("\033[?25l", end="", flush=True)
         frame = 0
-        for columns in range(0, target_width + 1, 3):
-            _render_intro_frame(columns, frame)
-            if _intro_enter_pressed():
-                return
-            frame += 1
-            time.sleep(0.035)
-
         while True:
-            _render_intro_frame(target_width, frame, prompt=True)
-            if _intro_enter_pressed():
-                return
+            device = find_janos_device()
+            reveal_columns = min(target_width, frame * 3)
+            dots = "." * ((frame // 5) % 4)
+            _render_intro_frame(
+                reveal_columns,
+                frame,
+                status=f"Waiting for MonsterC5{dots}",
+            )
+            if device:
+                _render_intro_frame(
+                    target_width,
+                    frame,
+                    status="Connected!",
+                    connected=True,
+                )
+                time.sleep(1.0)
+                return device
             frame += 1
-            time.sleep(0.07)
+            time.sleep(0.08)
     finally:
-        termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_term)
         print("\033[?25h", end="", flush=True)
 
 # ============================================================================
@@ -356,40 +426,32 @@ class UI:
             "",
             f"{Colors.GREEN}1){Colors.NC} Scan",
             f"{Colors.GREEN}2){Colors.NC} Sniffer",
-            f"{Colors.GREEN}3){Colors.NC} Attacks",
+            f"{Colors.GREEN}3){Colors.NC} Global WiFi attacks",
             f"{Colors.GREEN}4){Colors.NC} Wardrive",
             f"{Colors.GREEN}5){Colors.NC} SD data",
-            f"{Colors.GREEN}6){Colors.NC} System",
+            f"{Colors.GREEN}6){Colors.NC} Bluetooth",
             f"{Colors.GREEN}7){Colors.NC} SubGHz",
+            f"{Colors.GREEN}8){Colors.NC} Settings",
             "",
             f"{Colors.GRAY}0){Colors.NC} Exit",
         ]
         UI.print_compact_box("MAIN MENU", lines, Colors.CYAN)
 
     @staticmethod
-    def print_scan_menu(network_count: int, selected_networks: str) -> None:
-        """Print the scan submenu."""
+    def print_scan_actions(selected_networks: str) -> None:
+        """Print actions shown under the current WiFi scan results."""
         lines = [
             "",
-            f"{Colors.GREEN}1){Colors.NC} Scan networks",
-            f"{Colors.GREEN}2){Colors.NC} Show scan results",
-            f"{Colors.GREEN}3){Colors.NC} Select networks",
-            f"{Colors.GREEN}4){Colors.NC} Inspect network",
-            f"{Colors.GREEN}5){Colors.NC} Unselect networks",
+            f"{Colors.GREEN}<numbers>{Colors.NC} Select networks (e.g. 1 3 5)",
+            f"{Colors.GREEN}a){Colors.NC} Attacks for selected networks",
+            f"{Colors.GREEN}i <number>){Colors.NC} Inspect network",
+            f"{Colors.GREEN}r){Colors.NC} Rescan",
             "",
             f"{Colors.GRAY}0){Colors.NC} Back to main menu",
         ]
-        UI.print_compact_box("SCAN", lines, Colors.CYAN)
-        
-        # Status line
-        if network_count > 0:
-            print(f"{Colors.GREEN}[+] Networks found: {network_count}{Colors.NC}")
-        else:
-            print(f"{Colors.GRAY}[-] No networks scanned{Colors.NC}")
-        
+        UI.print_compact_box("SCAN ACTIONS", lines, Colors.CYAN, width=68)
         if selected_networks:
             print(f"{Colors.GREEN}[+] Selected: {selected_networks}{Colors.NC}")
-        
         print()
 
     @staticmethod
@@ -428,32 +490,18 @@ class UI:
                           sae_overflow_running: bool, handshake_running: bool, portal_running: bool,
                           evil_twin_running: bool, beacon_spam_running: bool = False,
                           arp_running: bool = False, mitm_running: bool = False) -> None:
-        """Print the attacks submenu."""
+        """Print the global WiFi attacks submenu."""
         lines = [
             "",
-            f"{Colors.GRAY}global WiFi attacks{Colors.NC}",
-            f"{Colors.GREEN}1){Colors.NC} Deauth",
-            f"{Colors.GREEN}2){Colors.NC} Blackout",
-            f"{Colors.GREEN}3){Colors.NC} WPA3 SAE Overflow",
-            f"{Colors.GREEN}4){Colors.NC} Handshaker",
-            f"{Colors.GREEN}5){Colors.NC} Portal",
-            f"{Colors.GREEN}6){Colors.NC} Evil Twin",
-            f"{Colors.GREEN}7){Colors.NC} Beacon spam",
+            f"{Colors.GREEN}1){Colors.NC} Blackout",
+            f"{Colors.GREEN}2){Colors.NC} Handshaker",
+            f"{Colors.GREEN}3){Colors.NC} Portal",
+            f"{Colors.GREEN}4){Colors.NC} Beacon spam",
             "",
-            f"{Colors.GRAY}inside network attacks{Colors.NC}",
-            f"{Colors.GREEN}8){Colors.NC} ARP",
-            f"{Colors.GREEN}9){Colors.NC} MITM",
-            "",
-            f"{Colors.RED}10){Colors.NC} Stop ALL actions",
+            f"{Colors.RED}9){Colors.NC} Stop ALL actions",
             f"{Colors.GRAY}0){Colors.NC} Back to main menu",
         ]
-        UI.print_compact_box("ATTACKS", lines, Colors.CYAN)
-        
-        # Status line
-        if selected_networks:
-            print(f"{Colors.GREEN}[+] Selected: {selected_networks}{Colors.NC}")
-        else:
-            print(f"{Colors.YELLOW}[!] No networks selected{Colors.NC}")
+        UI.print_compact_box("GLOBAL WIFI ATTACKS", lines, Colors.CYAN)
         
         if attack_running:
             print(f"{Colors.RED}[!] Deauth Attack is RUNNING{Colors.NC}")
@@ -476,6 +524,24 @@ class UI:
         if not attack_running and not blackout_running and not sae_overflow_running and not handshake_running and not portal_running and not evil_twin_running and not beacon_spam_running and not arp_running and not mitm_running:
             print(f"{Colors.GRAY}[-] No attacks running{Colors.NC}")
         
+        print()
+
+    @staticmethod
+    def print_target_attacks_menu(selected_networks: str) -> None:
+        """Print attacks which require a WiFi scan selection first."""
+        lines = [
+            "",
+            f"{Colors.GREEN}1){Colors.NC} Deauth",
+            f"{Colors.GREEN}2){Colors.NC} WPA3 SAE Overflow",
+            f"{Colors.GREEN}3){Colors.NC} Evil Twin",
+            f"{Colors.GREEN}4){Colors.NC} ARP",
+            f"{Colors.GREEN}5){Colors.NC} MITM",
+            "",
+            f"{Colors.RED}9){Colors.NC} Stop ALL actions",
+            f"{Colors.GRAY}0){Colors.NC} Back to scan results",
+        ]
+        UI.print_compact_box("SELECTED NETWORK ATTACKS", lines, Colors.CYAN, width=68)
+        print(f"{Colors.GREEN}[+] Selected: {selected_networks}{Colors.NC}")
         print()
 
     @staticmethod
@@ -504,7 +570,7 @@ class UI:
 
     @staticmethod
     def print_system_menu() -> None:
-        """Print the system submenu."""
+        """Print the settings submenu."""
         lines = [
             "",
             f"{Colors.GREEN}1){Colors.NC} Reboot device",
@@ -522,7 +588,7 @@ class UI:
             "",
             f"{Colors.GRAY}0){Colors.NC} Back to main menu",
         ]
-        UI.print_compact_box("SYSTEM", lines, Colors.CYAN)
+        UI.print_compact_box("SETTINGS", lines, Colors.CYAN)
 
     @staticmethod
     def print_wardrive_menu() -> None:
@@ -534,13 +600,23 @@ class UI:
             f"{Colors.GREEN}3){Colors.NC} Start wardrive promisc",
             f"{Colors.GREEN}4){Colors.NC} Start wardrive promisc + KML trace",
             f"{Colors.GREEN}5){Colors.NC} Wardrive config",
-            f"{Colors.GREEN}6){Colors.NC} Anti-surveillance",
-            f"{Colors.GREEN}7){Colors.NC} BLE scan",
-            f"{Colors.GREEN}8){Colors.NC} AirTag/SmartTag scan",
             "",
             f"{Colors.GRAY}0){Colors.NC} Back to main menu",
         ]
         UI.print_compact_box("WARDRIVE", lines, Colors.CYAN)
+
+    @staticmethod
+    def print_bluetooth_menu() -> None:
+        """Print Bluetooth tools moved out of Wardrive."""
+        lines = [
+            "",
+            f"{Colors.GREEN}1){Colors.NC} BLE scan",
+            f"{Colors.GREEN}2){Colors.NC} AirTag/SmartTag scan",
+            f"{Colors.GREEN}3){Colors.NC} Anti-surveillance",
+            "",
+            f"{Colors.GRAY}0){Colors.NC} Back to main menu",
+        ]
+        UI.print_compact_box("BLUETOOTH", lines, Colors.CYAN)
 
     @staticmethod
     def print_gps_setup_menu() -> None:
@@ -623,8 +699,8 @@ class UI:
             "",
             f"{Colors.GRAY}receivers and transmitters{Colors.NC}",
             f"{Colors.GREEN}6){Colors.NC} Weather / TPMS sensors",
-            f"{Colors.GREEN}7){Colors.NC} Tesla charge port",
-            f"{Colors.GREEN}8){Colors.NC} Jam a frequency",
+            f"{Colors.GREEN}7){Colors.NC} Tesla - port opener",
+            f"{Colors.GREEN}8){Colors.NC} Jammer",
             "",
             f"{Colors.GRAY}radio{Colors.NC}",
             f"{Colors.GREEN}9){Colors.NC} Radio tools",
@@ -755,9 +831,13 @@ class SerialManager:
         if not os.access(self.device, os.R_OK | os.W_OK):
             print(f"{Colors.RED}Error: No read/write access to '{self.device}'{Colors.NC}")
             print()
-            print("Try running with sudo or add your user to the dialout group:")
-            print("  sudo usermod -a -G dialout $USER  # Linux")
-            print("  # Then log out and log back in")
+            if self.os_type == 'macos':
+                print("Reconnect the device and use its /dev/cu.usbserial-* port.")
+                print("The app should be run as your normal user, without sudo.")
+            else:
+                print("Add your user to the dialout group:")
+                print("  sudo usermod -a -G dialout $USER")
+                print("Then log out and log back in.")
             sys.exit(1)
         
         try:
@@ -970,12 +1050,13 @@ class NetworkManager:
         except:
             return Colors.GRAY
     
-    def display_networks(self) -> None:
+    def display_networks(self, pause: bool = True) -> None:
         """Display networks in a table."""
         if self.network_count == 0:
             print(f"{Colors.YELLOW}[!] No networks scanned yet. Run a scan first.{Colors.NC}")
             print()
-            input("Press Enter to continue...")
+            if pause:
+                input("Press Enter to continue...")
             return
         
         clear_screen()
@@ -1019,7 +1100,8 @@ class NetworkManager:
             print(f"{Colors.GREEN}[+] Selected networks: {Colors.WHITE}{self.selected_networks}{Colors.NC}")
         
         print()
-        input("Press Enter to continue...")
+        if pause:
+            input("Press Enter to continue...")
 
 # ============================================================================
 # Main Application
@@ -1471,84 +1553,25 @@ class JanOS:
                        self.sniffer_running, self.sae_overflow_running,
                        self.handshake_running, self.portal_running,
                        self.evil_twin_running)
-        print()
-        print(f"{Colors.YELLOW}[*] Initiating network scan...{Colors.NC}")
-        print(f"{Colors.GRAY}    This may take up to {SCAN_TIMEOUT} seconds{Colors.NC}")
-        print()
-        
-        # Clear previous networks
+        # A new scan always starts with a clean target selection on the ESP.
+        self.clear_network_selection()
         self.network_mgr.clear_networks()
-        
-        # Send scan command
-        self.serial_mgr.send_command("scan_networks")
-        
-        # Read response with progress display
-        start_time = time.time()
-        
-        # Read lines from serial
+
         try:
-            while time.time() - start_time < SCAN_TIMEOUT:
-                elapsed = int(time.time() - start_time)
-                print(f"\r    Elapsed: {elapsed}s / {SCAN_TIMEOUT}s  ", end="", flush=True)
-                
-                lines = self.serial_mgr.read_until_silence(max_wait=1.0, idle_timeout=0.4)
-                for line in lines:
-                    # Parse network lines
-                    if line.startswith('"'):
-                        self.network_mgr.add_network(line)
-                    
-                    # Check if scan is complete
-                    if "Scan results printed" in line:
-                        print(f"\n{Colors.GREEN}[+] Scan complete!{Colors.NC}")
-                        self.network_mgr.scan_done = True
-                        print()
-                        input("Press Enter to continue...")
-                        return
-                
-                if self.network_mgr.scan_done:
-                    break
-                
-                time.sleep(0.1)
-            
-            if not self.network_mgr.scan_done:
-                print(f"\n{Colors.YELLOW}[!] Timeout reached{Colors.NC}")
-            
+            networks = self._scan_networks_for_connect()
         except KeyboardInterrupt:
             print(f"\n{Colors.YELLOW}[!] Scan interrupted{Colors.NC}")
-        
+            networks = []
+
         print()
-        
-        if self.network_mgr.network_count > 0:
-            print(f"{Colors.GREEN}[+] Found {self.network_mgr.network_count} networks!{Colors.NC}")
+        if networks:
+            print(f"{Colors.GREEN}[+] Found {len(networks)} networks!{Colors.NC}")
         else:
             print(f"{Colors.YELLOW}[!] No networks found{Colors.NC}")
-        
         print()
-        input("Press Enter to continue...")
+        time.sleep(0.6)
 
-    def show_scan_results(self) -> None:
-        """Fetch and display latest scan results from device."""
-        print(f"{Colors.YELLOW}[*] Requesting scan results from device...{Colors.NC}")
-        self.serial_mgr.send_command("show_scan_results")
-        lines = self.serial_mgr.read_until_silence(max_wait=6, idle_timeout=1.0)
-
-        parsed_networks = 0
-        for line in lines:
-            if line.startswith('"'):
-                if parsed_networks == 0:
-                    self.network_mgr.clear_networks()
-                self.network_mgr.add_network(line)
-                parsed_networks += 1
-
-        if parsed_networks == 0 and self.network_mgr.network_count == 0:
-            print(f"{Colors.YELLOW}[!] No scan results available. Run scan first.{Colors.NC}")
-            print()
-            input("Press Enter to continue...")
-            return
-
-        self.network_mgr.display_networks()
-
-    def inspect_network(self) -> None:
+    def inspect_network(self, index: str = "") -> None:
         """Inspect one scanned AP for MFP and uptime metadata."""
         if self.network_mgr.network_count == 0:
             print(f"{Colors.YELLOW}[!] No networks scanned yet. Run a scan first.{Colors.NC}")
@@ -1556,94 +1579,40 @@ class JanOS:
             self._pause()
             return
 
-        clear_screen()
-        UI.print_banner(self.device, self.attack_running, self.blackout_running,
-                       self.sniffer_running, self.sae_overflow_running,
-                       self.handshake_running, self.portal_running,
-                       self.evil_twin_running)
-        print(f"{Colors.CYAN}Available networks:{Colors.NC}")
-        for network in self.network_mgr.networks:
-            idx = network.get('index', '?')
-            ssid = network.get('ssid', '?')
-            channel = network.get('channel', '?')
-            rssi = network.get('rssi', '?')
-            print(f"  {Colors.GREEN}[{idx}]{Colors.NC} {ssid} {Colors.GRAY}(CH: {channel}, RSSI: {rssi}){Colors.NC}")
-        print()
-
-        try:
-            index = input("Network index to inspect: ").strip()
-        except EOFError:
-            return
-        if not index.isdigit():
+        if not index:
+            try:
+                index = input("Network index to inspect: ").strip()
+            except EOFError:
+                return
+        valid_indexes = {network.get('index', '') for network in self.network_mgr.networks}
+        if not index.isdigit() or index not in valid_indexes:
             print(f"{Colors.RED}[!] Invalid index{Colors.NC}")
             time.sleep(1)
             return
 
         self.run_simple_command(f"inspect_network {index}", "INSPECT NETWORK", max_wait=5, idle_timeout=0.8)
 
-    def unselect_networks(self) -> None:
-        """Clear selected networks on the board and in local state."""
-        self.network_mgr.set_selected_networks("")
-        self.run_simple_command("unselect_networks", "UNSELECT NETWORKS", max_wait=4, idle_timeout=0.8)
-    
-    def select_networks_menu(self) -> None:
-        """Network selection menu."""
-        if self.network_mgr.network_count == 0:
-            print(f"{Colors.YELLOW}[!] No networks scanned yet. Run a scan first.{Colors.NC}")
-            print()
-            input("Press Enter to continue...")
-            return
-        
-        clear_screen()
-        UI.print_banner(self.device, self.attack_running, self.blackout_running, 
-                       self.sniffer_running, self.sae_overflow_running,
-                       self.handshake_running, self.portal_running,
-                       self.evil_twin_running)
-        print()
-        
-        # Display networks briefly
-        print(f"{Colors.CYAN}Available networks:{Colors.NC}")
-        print()
-        for network in self.network_mgr.networks:
-            idx = network.get('index', '?')
-            ssid = network.get('ssid', '?')
-            rssi = network.get('rssi', '?')
-            print(f"  {Colors.GREEN}[{idx}]{Colors.NC} {ssid} {Colors.GRAY}(RSSI: {rssi}){Colors.NC}")
-        
-        print()
-        print(f"{Colors.WHITE}Enter network numbers separated by spaces (e.g., 1 3 5){Colors.NC}")
-        print(f"{Colors.GRAY}Or enter 'all' to select all networks{Colors.NC}")
-        print()
-        
-        try:
-            selection = input("Selection: ").strip()
-        except EOFError:
-            return
-        
-        if not selection:
-            print(f"{Colors.YELLOW}[!] No selection made{Colors.NC}")
-            time.sleep(1)
-            return
-        
-        # Handle 'all' selection
-        if selection.lower() == 'all':
-            selection = ' '.join(str(i+1) for i in range(self.network_mgr.network_count))
-        
-        # Validate selection (basic check for numbers and spaces)
-        if not re.match(r'^[\d\s]+$', selection):
-            print(f"{Colors.RED}[!] Invalid selection. Use numbers separated by spaces.{Colors.NC}")
-            time.sleep(2)
-            return
-        
-        self.network_mgr.set_selected_networks(selection)
-        
-        print()
-        print(f"{Colors.YELLOW}[*] Sending selection to device...{Colors.NC}")
-        self.serial_mgr.send_command(f"select_networks {selection}")
-        time.sleep(1)
-        
-        print(f"{Colors.GREEN}[+] Networks selected: {Colors.WHITE}{selection}{Colors.NC}")
-        time.sleep(1)
+    def clear_network_selection(self, keep_local: bool = False) -> None:
+        """Silently clear local and device-side WiFi target selection."""
+        if not keep_local:
+            self.network_mgr.set_selected_networks("")
+        self.serial_mgr.clear_input()
+        self.serial_mgr.send_command("unselect_networks")
+        time.sleep(0.15)
+        self.serial_mgr.clear_input()
+
+    def set_network_selection(self, selection: str) -> bool:
+        """Validate, normalize and sync one or more scan indexes."""
+        requested = selection.replace(",", " ").split()
+        valid_indexes = {network.get('index', '') for network in self.network_mgr.networks}
+        if not requested or any(not item.isdigit() or item not in valid_indexes for item in requested):
+            return False
+
+        normalized = " ".join(dict.fromkeys(requested))
+        self.clear_network_selection()
+        self.serial_mgr.send_command(f"select_networks {normalized}")
+        self.network_mgr.set_selected_networks(normalized)
+        return True
     
     def start_sniffer(self) -> None:
         """Start sniffer with stable live counter and Enter-to-stop."""
@@ -1977,7 +1946,7 @@ class JanOS:
         selected_indices = self.network_mgr.selected_networks.split()
         if len(selected_indices) != 1:
             print(f"{Colors.YELLOW}[!] SAE Overflow requires exactly ONE selected network.{Colors.NC}")
-            print(f"{Colors.YELLOW}[*] Use option 3 in Attacks Menu to pick one target.{Colors.NC}")
+            print(f"{Colors.YELLOW}[*] Select exactly one network in the Scan menu first.{Colors.NC}")
             print()
             input("Press Enter to continue...")
             return
@@ -2648,8 +2617,18 @@ class JanOS:
         print(f"{Colors.MAGENTA}╚══════════════════════════════════════════════════════════════════════════════╝{Colors.NC}")
         print()
         
-        # Step 1: Select target network
-        target_network = self.select_target_network_menu()
+        # Step 1: Reuse a single target selected in the scan flow. When several
+        # were selected, ask which one should be cloned by Evil Twin.
+        target_network = None
+        selected_indexes = self.network_mgr.selected_networks.split()
+        if len(selected_indexes) == 1:
+            target_network = next(
+                (network for network in self.network_mgr.networks
+                 if network.get('index') == selected_indexes[0]),
+                None,
+            )
+        if not target_network:
+            target_network = self.select_target_network_menu()
         if not target_network:
             print(f"{Colors.YELLOW}[!] Evil Twin setup cancelled{Colors.NC}")
             time.sleep(1)
@@ -3019,7 +2998,7 @@ class JanOS:
             "BEACON SPAM",
             [
                 f"{Colors.YELLOW}Starting from /sdcard/lab/ssids.txt{Colors.NC}",
-                f"{Colors.GRAY}Edit SSID list in: Attacks > Beacon spam > SSID list{Colors.NC}",
+                f"{Colors.GRAY}Edit SSID list in: Global WiFi attacks > Beacon spam > SSID list{Colors.NC}",
             ],
             Colors.CYAN
         )
@@ -4020,12 +3999,33 @@ class JanOS:
                     self.start_wardrive_promisc(trace=True)
                 elif choice == '5':
                     self.wardrive_config_menu()
-                elif choice == '6':
-                    self.start_antisurveillance()
-                elif choice == '7':
+                elif choice == '0':
+                    return
+                else:
+                    print(f"{Colors.RED}Invalid option{Colors.NC}")
+                    time.sleep(1)
+            except (KeyboardInterrupt, EOFError):
+                print(f"\n{Colors.YELLOW}[*] Returning to main menu{Colors.NC}")
+                time.sleep(1)
+                return
+
+    def bluetooth_menu(self) -> None:
+        """Bluetooth tools submenu."""
+        while True:
+            try:
+                clear_screen()
+                UI.print_banner(self.device, self.attack_running, self.blackout_running,
+                              self.sniffer_running, self.sae_overflow_running,
+                              self.handshake_running, self.portal_running,
+                              self.evil_twin_running)
+                UI.print_bluetooth_menu()
+                choice = input("Select option: ").strip()
+                if choice == '1':
                     self.scan_ble_devices()
-                elif choice == '8':
+                elif choice == '2':
                     self.start_airtag_scan()
+                elif choice == '3':
+                    self.start_antisurveillance()
                 elif choice == '0':
                     return
                 else:
@@ -4375,31 +4375,37 @@ class JanOS:
                 break
     
     def scan_menu(self) -> None:
-        """Scan submenu."""
+        """Scan, display, select targets and continue to target attacks."""
+        needs_scan = True
         while True:
             try:
-                clear_screen()
-                UI.print_banner(self.device, self.attack_running, self.blackout_running, 
-                              self.sniffer_running, self.sae_overflow_running,
-                              self.handshake_running, self.portal_running,
-                              self.evil_twin_running)
-                UI.print_scan_menu(self.network_mgr.network_count, 
-                                 self.network_mgr.selected_networks)
-                
-                choice = input("Select option: ").strip()
-                
-                if choice == '1':
+                if needs_scan:
                     self.do_scan()
-                elif choice == '2':
-                    self.show_scan_results()
-                elif choice == '3':
-                    self.select_networks_menu()
-                elif choice == '4':
-                    self.inspect_network()
-                elif choice == '5':
-                    self.unselect_networks()
+                    needs_scan = False
+
+                self.network_mgr.display_networks(pause=False)
+                UI.print_scan_actions(self.network_mgr.selected_networks)
+                choice = input("Selection: ").strip().lower()
+
+                if choice == 'r':
+                    needs_scan = True
+                elif choice == 'a':
+                    if not self.network_mgr.selected_networks:
+                        print(f"{Colors.YELLOW}[!] Select at least one network first.{Colors.NC}")
+                        time.sleep(1.2)
+                    else:
+                        self.target_attacks_menu()
+                elif choice.startswith('i '):
+                    self.inspect_network(choice[2:].strip())
                 elif choice == '0':
-                    return  # Back to main menu
+                    return
+                elif re.fullmatch(r'[\d,\s]+', choice or ''):
+                    if self.set_network_selection(choice):
+                        print(f"{Colors.GREEN}[+] Networks selected: {self.network_mgr.selected_networks}{Colors.NC}")
+                        time.sleep(0.8)
+                    else:
+                        print(f"{Colors.RED}[!] Use indexes shown in the scan results.{Colors.NC}")
+                        time.sleep(1.2)
                 else:
                     print(f"{Colors.RED}Invalid option{Colors.NC}")
                     time.sleep(1)
@@ -4466,7 +4472,7 @@ class JanOS:
                 break
     
     def attacks_menu(self) -> None:
-        """Attacks submenu."""
+        """Global WiFi attacks submenu."""
         while True:
             try:
                 clear_screen()
@@ -4484,24 +4490,18 @@ class JanOS:
                 choice = input("Select option: ").strip()
                 
                 if choice == '1':
-                    self.start_deauth_attack()
-                elif choice == '2':
+                    self.clear_network_selection()
                     self.start_blackout_attack()
-                elif choice == '3':
-                    self.setup_and_start_sae_overflow()
-                elif choice == '4':
+                elif choice == '2':
+                    self.clear_network_selection()
                     self.start_handshake_attack()
-                elif choice == '5':
+                elif choice == '3':
+                    self.clear_network_selection()
                     self.portal_menu()
-                elif choice == '6':
-                    self.evil_twin_menu()
-                elif choice == '7':
+                elif choice == '4':
+                    self.clear_network_selection()
                     self.beacon_spam_menu()
-                elif choice == '8':
-                    self.start_arp_attack()
                 elif choice == '9':
-                    self.start_mitm_attack()
-                elif choice == '10':
                     self.stop_all_attacks()
                 elif choice == '0':
                     return  # Back to main menu
@@ -4517,6 +4517,43 @@ class JanOS:
                 print(f"\n{Colors.YELLOW}[*] Returning to main menu{Colors.NC}")
                 time.sleep(1)
                 break
+
+    def target_attacks_menu(self) -> None:
+        """Attacks available only after selecting scanned WiFi networks."""
+        while self.network_mgr.selected_networks:
+            try:
+                clear_screen()
+                UI.print_banner(self.device, self.attack_running, self.blackout_running,
+                              self.sniffer_running, self.sae_overflow_running,
+                              self.handshake_running, self.portal_running,
+                              self.evil_twin_running)
+                UI.print_target_attacks_menu(self.network_mgr.selected_networks)
+                choice = input("Select option: ").strip()
+
+                if choice == '1':
+                    self.set_network_selection(self.network_mgr.selected_networks)
+                    self.start_deauth_attack()
+                elif choice == '2':
+                    self.setup_and_start_sae_overflow()
+                elif choice == '3':
+                    self.evil_twin_menu()
+                elif choice == '4':
+                    self.clear_network_selection(keep_local=True)
+                    self.start_arp_attack()
+                elif choice == '5':
+                    self.clear_network_selection(keep_local=True)
+                    self.start_mitm_attack()
+                elif choice == '9':
+                    self.stop_all_attacks()
+                elif choice == '0':
+                    return
+                else:
+                    print(f"{Colors.RED}Invalid option{Colors.NC}")
+                    time.sleep(1)
+            except (KeyboardInterrupt, EOFError):
+                print(f"\n{Colors.YELLOW}[*] Returning to scan results{Colors.NC}")
+                time.sleep(1)
+                return
 
     def system_reboot(self) -> None:
         """Reboot the device."""
@@ -5088,7 +5125,7 @@ class JanOS:
                 return
     
     def system_menu(self) -> None:
-        """System submenu."""
+        """Settings submenu."""
         while True:
             try:
                 clear_screen()
@@ -5207,9 +5244,11 @@ class JanOS:
                 elif choice == '5':
                     self.sd_data_menu()
                 elif choice == '6':
-                    self.system_menu()
+                    self.bluetooth_menu()
                 elif choice == '7':
                     self.subghz_menu()
+                elif choice == '8':
+                    self.system_menu()
                 elif choice in ['0', 'q', 'Q']:
                     if self.attack_running or self.blackout_running or self.sniffer_running or self.sae_overflow_running or self.handshake_running or self.portal_running or self.evil_twin_running or self.wardrive_running or self.beacon_spam_running or self.arp_running or self.mitm_running:
                         print()
@@ -5318,8 +5357,7 @@ def main():
         device = sys.argv[1]
     
     if not device:
-        show_startup_intro()
-        device = select_device_interactive()
+        device = wait_for_janos_device()
     
     # Create and run application
     app = JanOS(device)
