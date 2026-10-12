@@ -85,7 +85,13 @@ python3 RPi0-1-44-LCD/app.py
 ```
 
 Port można odpiąć i podpiąć ponownie: interfejs pozostaje aktywny i ponawia
-łączenie. Zakończenie aplikacji z SSH: `Ctrl+C`.
+łączenie. Zakończenie aplikacji uruchomionej ręcznie z SSH: `Ctrl+C`.
+
+Przy każdym starcie aplikacja wyświetla `RPi0-1-44-LCD/splash.png` przez
+3 sekundy, a następnie otwiera menu. Aby ustawić inny czas, uruchom ją np.
+z `--splash-seconds 5`; `--splash-seconds 0` pomija ekran powitalny. Obraz
+jest skalowany do 128×128 pikseli z zachowaniem proporcji. Możesz zastąpić
+plik `splash.png` własną grafiką PNG.
 
 ## Joystick i obsługa
 
@@ -115,40 +121,49 @@ firmware ESP32 nadal przechowuje swoje wyniki. Ekran podaje status połączenia
 `stop` lub `subghz_stop`, aby nie zostawiać ich w tle. Przy dowolnej komendzie
 wysłanej z edytora można użyć pozycji **Stop wszystkich** albo **Stop radia**.
 
-## Start automatyczny po bootowaniu (opcjonalnie)
+## Start automatyczny po bootowaniu
 
-Utwórz `/etc/systemd/system/janos-lcd.service` i **dopasuj** `User`,
-`WorkingDirectory` oraz ścieżkę w `ExecStart` do swojej instalacji:
-
-```ini
-[Unit]
-Description=JanOS Seengreat LCD
-After=local-fs.target
-
-[Service]
-Type=simple
-User=pi
-SupplementaryGroups=spi gpio dialout
-WorkingDirectory=/home/pi/JanOS-app
-ExecStart=/usr/bin/python3 /home/pi/JanOS-app/RPi0-1-44-LCD/app.py
-Restart=on-failure
-RestartSec=3
-
-[Install]
-WantedBy=multi-user.target
-```
-
-Następnie:
+Na Raspberry Pi uruchom instalator **jako zwykły użytkownik, bez `sudo`**.
+Skrypt sam użyje `sudo` i poprosi o hasło. Instalator wpisuje aktualną nazwę
+użytkownika i ścieżkę projektu do `/etc/systemd/system/janos-lcd.service`,
+włącza usługę przy bootowaniu i uruchamia ją od razu:
 
 ```bash
-sudo systemctl daemon-reload
-sudo systemctl enable --now janos-lcd.service
-systemctl status janos-lcd.service
-journalctl -u janos-lcd.service -f
+cd ~/JanOS-app
+bash RPi0-1-44-LCD/install-service.sh
 ```
 
-Jeżeli chcesz przypiąć konkretny port ESP32, dodaj do `ExecStart` argument
-`--port /dev/serial/by-id/...`.
+Po instalacji możesz rozłączyć SSH: aplikacja uruchomi się sama przy kolejnych
+startach Pi, także wtedy, gdy ESP32-C5 zostanie podłączony później. Sprawdzenie
+stanu, logów i ponowne uruchomienie po aktualizacji plików:
+
+```bash
+systemctl is-enabled janos-lcd.service
+systemctl --no-pager status janos-lcd.service
+journalctl -u janos-lcd.service -b --no-pager
+sudo systemctl restart janos-lcd.service
+```
+
+Nie uruchamiaj `check_hat.py` równocześnie z usługą: oba programy używają tego
+samego SPI i GPIO. Na czas testu zatrzymaj usługę, a potem uruchom ją ponownie:
+
+```bash
+sudo systemctl stop janos-lcd.service
+python3 RPi0-1-44-LCD/check_hat.py
+sudo systemctl start janos-lcd.service
+```
+
+Wyłączenie autostartu i zatrzymanie aplikacji:
+
+```bash
+sudo systemctl disable --now janos-lcd.service
+```
+
+Jeżeli masz kilka portów szeregowych, możesz dopisać argument
+`--port /dev/serial/by-id/...` do `ExecStart` przez
+`sudo systemctl edit --full janos-lcd.service`, a potem wykonać
+`sudo systemctl daemon-reload` i `sudo systemctl restart janos-lcd.service`.
+Ponowne uruchomienie instalatora przywróci domyślny plik usługi.
 
 ## Sprawdzenie i diagnoza
 

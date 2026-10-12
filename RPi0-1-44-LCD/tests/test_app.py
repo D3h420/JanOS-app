@@ -1,5 +1,6 @@
 """Check the joystick workflow without an LCD or an ESP32."""
 
+import importlib.util
 import sys
 from pathlib import Path
 import unittest
@@ -140,6 +141,45 @@ class AppTests(unittest.TestCase):
         self.assertIsNone(ui.pending_signals)
         self.assertEqual(ui._menu(), "signals:mem")
         self.assertEqual(ui.signals["mem"]["2"]["name"], "garage")
+
+    @unittest.skipUnless(importlib.util.find_spec("PIL"), "Pillow is not installed")
+    def test_splash_image_is_displayed_for_three_seconds(self):
+        ui = self.make_ui()
+
+        def advance(seconds):
+            self.clock[0] += seconds
+
+        with patch.object(app.time, "sleep", side_effect=advance):
+            ui._show_splash(3.0)
+
+        self.assertEqual(len(ui.display.frames), 1)
+        frame = ui.display.frames[0]
+        self.assertEqual(frame.size, (128, 128))
+        minimum, maximum = frame.convert("L").getextrema()
+        self.assertLess(minimum, 30)
+        self.assertGreater(maximum, 230)
+        self.assertAlmostEqual(self.clock[0], 3.0)
+
+    def test_splash_precedes_first_tick_and_run_closes_resources(self):
+        ui = self.make_ui()
+        order = []
+        ui._show_splash = lambda seconds: order.append(("splash", seconds))
+
+        def stop_after_first_tick():
+            order.append(("tick", None))
+            raise SystemExit(0)
+
+        ui.tick = stop_after_first_tick
+        with patch.object(ui.display, "close") as close_display, \
+             patch.object(ui.buttons, "close") as close_buttons, \
+             patch.object(ui.link, "close") as close_link:
+            with self.assertRaises(SystemExit):
+                ui.run(splash_seconds=3.0)
+
+        self.assertEqual(order, [("splash", 3.0), ("tick", None)])
+        close_display.assert_called_once()
+        close_buttons.assert_called_once()
+        close_link.assert_called_once()
 
 
 if __name__ == "__main__":

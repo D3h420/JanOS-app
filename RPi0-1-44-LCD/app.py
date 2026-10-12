@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import argparse
 from collections import deque
+import math
+from pathlib import Path
 import re
 import signal
 import time
@@ -18,6 +20,8 @@ from hardware import DEFAULT_ROTATION
 from protocol import JanOSLink, parse_network_line
 
 SIZE = 128
+SPLASH_IMAGE = Path(__file__).with_name("splash.png")
+DEFAULT_SPLASH_SECONDS = 3.0
 BG = (7, 13, 24)
 PANEL = (15, 31, 48)
 CYAN = (48, 216, 225)
@@ -644,8 +648,22 @@ class JanOSUI:
         self.buttons.close()
         self.display.close()
 
-    def run(self):
+    def _show_splash(self, seconds: float):
+        if seconds == 0:
+            return
+        from PIL import Image, ImageOps
+
+        with Image.open(SPLASH_IMAGE) as source:
+            frame = ImageOps.pad(source.convert("RGB"), (SIZE, SIZE),
+                                 method=Image.Resampling.LANCZOS, color="white")
+        self.display.show(frame)
+        deadline = self.now() + seconds
+        while (remaining := deadline - self.now()) > 0:
+            time.sleep(min(0.05, remaining))
+
+    def run(self, *, splash_seconds: float = DEFAULT_SPLASH_SECONDS):
         try:
+            self._show_splash(splash_seconds)
             while True:
                 self.tick()
                 time.sleep(0.04)
@@ -661,7 +679,11 @@ def main():
     parser.add_argument("--x-offset", type=int, default=2, help="Przesuniecie RAM ekranu X")
     parser.add_argument("--y-offset", type=int, default=3, help="Przesuniecie RAM ekranu Y")
     parser.add_argument("--rgb-panel", action="store_true", help="Zamien tryb BGR na RGB")
+    parser.add_argument("--splash-seconds", type=float, default=DEFAULT_SPLASH_SECONDS,
+                        help="Czas ekranu powitalnego w sekundach (domyslnie: 3; 0 wylacza)")
     args = parser.parse_args()
+    if not math.isfinite(args.splash_seconds) or args.splash_seconds < 0:
+        parser.error("--splash-seconds musi byc nieujemna, skonczona liczba")
     from hardware import Buttons, Display
 
     display = Display(rotation=args.rotation, x_offset=args.x_offset,
@@ -682,7 +704,7 @@ def main():
         buttons.close()
         display.close()
         raise
-    ui.run()
+    ui.run(splash_seconds=args.splash_seconds)
 
 
 if __name__ == "__main__":
