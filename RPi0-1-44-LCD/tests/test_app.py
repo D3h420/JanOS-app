@@ -1,4 +1,4 @@
-"""Check the four-button workflow without an LCD or an ESP32."""
+"""Check the joystick workflow without an LCD or an ESP32."""
 
 import sys
 from pathlib import Path

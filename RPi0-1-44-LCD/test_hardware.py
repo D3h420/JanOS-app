@@ -60,6 +60,13 @@ class FakeSPI:
 class FakeImage:
     size = (128, 128)
 
+    def __init__(self):
+        self.rotated_by = None
+
+    def rotate(self, angle):
+        self.rotated_by = angle
+        return self
+
     def convert(self, mode):
         assert mode == "RGB"
         return self
@@ -78,7 +85,9 @@ class HardwareTests(unittest.TestCase):
             display = hardware.Display(gpio=gpio, spi=spi)
         finally:
             hardware.time.sleep = original_sleep
-        display.show(FakeImage())
+        image = FakeImage()
+        display.show(image)
+        self.assertEqual(image.rotated_by, -270)
         self.assertEqual(spi.bus_device, (0, 0))
         self.assertEqual(spi.mode, 0)
         self.assertEqual(spi.max_speed_hz, 8_000_000)
@@ -99,9 +108,10 @@ class HardwareTests(unittest.TestCase):
         hardware.time.monotonic = lambda: clock[0]
         try:
             buttons = hardware.Buttons(gpio=gpio, debounce_s=0.03)
-            self.assertEqual([c[1] for c in gpio.claims if c[0] == "in"], [17, 18, 22, 23])
+            self.assertEqual([c[1] for c in gpio.claims if c[0] == "in"],
+                             [13, 26, 5, 19, 6])
             self.assertIsNone(buttons.poll())
-            gpio.levels[17] = 0
+            gpio.levels[13] = 0
             self.assertIsNone(buttons.poll())
             clock[0] = 0.031
             self.assertEqual(buttons.poll(), "up")
@@ -109,14 +119,46 @@ class HardwareTests(unittest.TestCase):
             clock[0] = 0.482
             self.assertEqual(buttons.poll(), "up")
             self.assertIsNone(buttons.poll())
-            gpio.levels[17] = 1
+            gpio.levels[13] = 1
             self.assertIsNone(buttons.poll())
             clock[0] = 0.513
             self.assertIsNone(buttons.poll())
-            gpio.levels[23] = 0
+            gpio.levels[5] = 0
             self.assertIsNone(buttons.poll())
             clock[0] = 0.544
             self.assertEqual(buttons.poll(), "back")
+            self.assertEqual(buttons.last_source, "joy_left")
+            buttons.close()
+        finally:
+            hardware.time.monotonic = original_monotonic
+
+    def test_joystick_directions_and_center(self):
+        gpio = FakeGPIO()
+        clock = [0.0]
+        original_monotonic = hardware.time.monotonic
+        hardware.time.monotonic = lambda: clock[0]
+        try:
+            buttons = hardware.Buttons(gpio=gpio)
+            gpio.levels.update({17: 0, 18: 0, 22: 0, 23: 0})
+            self.assertFalse(buttons.read_raw())
+            self.assertFalse(buttons.read())
+            for name, pin, action in (
+                ("joy_up", 13, "up"),
+                ("joy_down", 26, "down"),
+                ("joy_left", 5, "back"),
+                ("joy_right", 19, "select"),
+                ("joy_center", 6, "select"),
+            ):
+                gpio.levels[pin] = 0
+                self.assertEqual(buttons.read_raw(), {name})
+                self.assertIsNone(buttons.poll())
+                clock[0] += 0.031
+                self.assertEqual(buttons.poll(), action)
+                self.assertEqual(buttons.last_source, name)
+                gpio.levels[pin] = 1
+                self.assertIsNone(buttons.poll())
+                clock[0] += 0.031
+                self.assertIsNone(buttons.poll())
             buttons.close()
         finally:
             hardware.time.monotonic = original_monotonic

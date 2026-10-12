@@ -1,7 +1,7 @@
 # JanOS na Raspberry Pi Zero 2 W z ekranem Seengreat 1,44″
 
 Ten katalog zawiera interfejs JanOS dla HAT-a Seengreat 128×128 (ST7735S).
-Raspberry Pi steruje ekranem po SPI, odczytuje cztery przyciski K1–K4 i
+Raspberry Pi steruje ekranem po SPI, odczytuje pięciopozycyjny joystick i
 komunikuje się z zewnętrznym ESP32-C5 przez USB UART 115200 8N1. Nie potrzeba
 środowiska graficznego ani monitora HDMI. Oryginalny `JanOS_app.py` nadal działa
 przez terminal, na przykład po SSH.
@@ -63,8 +63,9 @@ python3 RPi0-1-44-LCD/check_hat.py
 ```
 
 Ten test HAT-a nie potrzebuje ESP32. Powinien pokazać czerwony, zielony,
-niebieski i biały kwadrat; K1–K4 wypisują rozpoznane klawisze w terminalu,
-a K4 kończy test. Następnie podłącz ESP32-C5 i sprawdź port USB:
+niebieski i biały kwadrat. Każdy ruch joysticka oraz jego wciśnięcie pokazuje
+surową nazwę wejścia i akcję na ekranie oraz w terminalu. Zakończ test przez
+`Ctrl+C`. Następnie podłącz ESP32-C5 i sprawdź port USB:
 
 ```bash
 ls -l /dev/serial/by-id/ /dev/ttyUSB* /dev/ttyACM* 2>/dev/null
@@ -86,25 +87,31 @@ python3 RPi0-1-44-LCD/app.py
 Port można odpiąć i podpiąć ponownie: interfejs pozostaje aktywny i ponawia
 łączenie. Zakończenie aplikacji z SSH: `Ctrl+C`.
 
-## Przyciski i obsługa
+## Joystick i obsługa
 
-| Przycisk na HAT | Działanie |
+Trzymaj HAT poziomo: joystick po lewej stronie ekranu, K1–K4 po prawej.
+Sterowanie aplikacją odbywa się wyłącznie joystickiem; K1–K4 nie są
+odczytywane ani przypisane do akcji. Na ekranie `O` oznacza wciśnięcie
+joysticka, a `<` jego ruch w lewo.
+
+| Ruch joysticka | Działanie |
 |---|---|
-| K1 | Góra / poprzednia pozycja |
-| K2 | Dół / następna pozycja |
-| K3 | Wybór / potwierdzenie |
-| K4 | Wstecz; na ekranie logu zatrzymuje bieżący monitor |
+| Góra | Poprzednia pozycja |
+| Dół | Następna pozycja |
+| Prawo lub wciśnięcie | Wybór / potwierdzenie |
+| Lewo | Wstecz; na ekranie logu zatrzymuje bieżący monitor |
 
 Menu udostępnia skan i wybór Wi-Fi, Sniffer, akcje RF, Wardrive, Bluetooth,
 SubGHz (w tym pamięć i bibliotekę SD), podgląd karty SD oraz diagnostykę
 urządzenia. Akcje wymagające parametrów można wysłać przez **Komenda UART**.
-W edytorze K1/K2 wybierają znak, K3 go dodaje, a K4 otwiera opcje: wyślij,
-spacja, usuń znak i wyczyść. Dłuższe wartości wygodniej podać w oryginalnej
-aplikacji terminalowej po SSH (`python3 JanOS_app.py`).
+W edytorze góra/dół wybierają znak, prawo lub wciśnięcie go dodaje, a lewo
+otwiera opcje: wyślij, spacja, usuń znak i wyczyść. Dłuższe wartości
+wygodniej podać w oryginalnej aplikacji terminalowej po SSH
+(`python3 JanOS_app.py`).
 
 Ekran ma tylko 128×128 pikseli, więc lista i log pokazują skrócone fragmenty;
 firmware ESP32 nadal przechowuje swoje wyniki. Ekran podaje status połączenia
-(zielona/czerwona kropka). Dla monitorów uruchomionych z menu powrót K4 wysyła
+(zielona/czerwona kropka). Dla monitorów uruchomionych z menu ruch w lewo wysyła
 `stop` lub `subghz_stop`, aby nie zostawiać ich w tle. Przy dowolnej komendzie
 wysłanej z edytora można użyć pozycji **Stop wszystkich** albo **Stop radia**.
 
@@ -153,9 +160,11 @@ python3 RPi0-1-44-LCD/test_hardware.py
 ```
 
 Jeśli ekran pozostaje czarny, sprawdź `/dev/spidev0.0`, grupy użytkownika i
-log usługi. Jeśli obraz jest odwrócony lub przesunięty, przekaż np.
-`--rotation 180 --x-offset 2 --y-offset 3` przy uruchamianiu aplikacji (także
-w `ExecStart` usługi). Jeśli czerwień i błękit są zamienione, dodaj `--rgb-panel`.
+log usługi. Domyślny obraz jest obrócony o 90° przeciwnie do ruchu wskazówek
+zegara względem pierwotnego portu (`--rotation 270`). Jeśli Twoja orientacja
+montażu wymaga innego ustawienia, użyj `--rotation 0`, `90` lub `180` (także
+w `ExecStart` usługi). Przesunięcie obrazu można skorygować przez `--x-offset`
+i `--y-offset`. Jeśli czerwień i błękit są zamienione, dodaj `--rgb-panel`.
 Seengreat nie dokumentuje przesunięcia RAM ani orientacji dla wszystkich
 rewizji modułu; domyślny profil 2/3 pochodzi ze standardowego panelu 1,44″
 ST7735 i wymaga potwierdzenia na fizycznym HAT-cie. Ustawienie 2/3 odpowiada

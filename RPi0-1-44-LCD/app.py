@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Four-button JanOS frontend for the Seengreat 128x128 ST7735S HAT.
+"""Joystick JanOS frontend for the Seengreat 128x128 ST7735S HAT.
 
 The existing JanOS_app.py remains the full terminal frontend.  This frontend
 speaks the same USB UART protocol and is deliberately independent of a TTY.
@@ -14,6 +14,7 @@ import signal
 import time
 from typing import Callable
 
+from hardware import DEFAULT_ROTATION
 from protocol import JanOSLink, parse_network_line
 
 SIZE = 128
@@ -588,7 +589,7 @@ class JanOSUI:
                           fill=WHITE if active else MUTED)
             if len(items) > 6:
                 draw.text((109, 99), f"{index + 1}/{len(items)}", font=self.small_font, fill=CYAN)
-            footer = "1^ 2v 3OK 4<"
+            footer = "JOY ^v O:OK <:WROC"
         elif self.view == "log":
             wrapped = []
             for line in self.logs:
@@ -600,7 +601,7 @@ class JanOSUI:
             for row, line in enumerate(wrapped[start:start + 8]):
                 fill = YELLOW if line.startswith(">") else WHITE
                 draw.text((4, 20 + row * 11), line, font=self.small_font, fill=fill)
-            footer = "1^ 2v 3END 4<"
+            footer = "JOY ^v O:OST <:WROC"
         elif self.view == "editor":
             draw.text((5, 24), "Komenda:", font=self.small_font, fill=MUTED)
             for row, line in enumerate(self._wrap(draw, self.editor_text[-65:], 118)[-3:]):
@@ -608,19 +609,19 @@ class JanOSUI:
             char = self.CHARS[self.editor_index]
             draw.rounded_rectangle((43, 77, 85, 105), radius=3, fill=(25, 77, 95))
             draw.text((55, 80), char, font=self.title_font, fill=CYAN)
-            footer = "1^ 2v 3+ 4OPC"
+            footer = "JOY ^v O:+ <:OPC"
         elif self.view == "confirm":
             draw.text((5, 27), "Wykonac komende?", font=self.font, fill=YELLOW)
             for row, line in enumerate(self._wrap(draw, self.confirm_label, 116)[:4]):
                 draw.text((5, 47 + row * 12), line, font=self.small_font, fill=WHITE)
-            footer = "3TAK 4NIE"
+            footer = "JOY O:TAK <:NIE"
         elif self.view == "scan":
             draw.text((5, 33), "Skan Wi-Fi...", font=self.font, fill=CYAN)
             draw.text((5, 58), f"Znaleziono: {len(self.networks)}", font=self.font, fill=WHITE)
-            footer = "4<"
+            footer = "JOY <:WROC"
         elif self.view == "loading":
             draw.text((5, 38), "Pobieram liste...", font=self.font, fill=CYAN)
-            footer = "4<"
+            footer = "JOY <:WROC"
         else:
             status = [self.status_message,
                       "ESP: " + ("polaczony" if self.link.connected else "brak"),
@@ -632,7 +633,7 @@ class JanOSUI:
                 for line in self._wrap(draw, entry, 118)[:2]:
                     draw.text((5, y), line, font=self.small_font, fill=WHITE)
                     y += 12
-            footer = "4<"
+            footer = "JOY <:WROC"
         draw.text((4, 116), footer, font=self.small_font, fill=MUTED)
         return image
 
@@ -655,8 +656,8 @@ class JanOSUI:
 def main():
     parser = argparse.ArgumentParser(description="JanOS dla Seengreat 1.44 LCD HAT")
     parser.add_argument("--port", help="Port ESP32-C5, np. /dev/serial/by-id/...")
-    parser.add_argument("--rotation", type=int, choices=(0, 90, 180, 270), default=0,
-                        help="Obroc obraz zgodnie z montazem HAT-a")
+    parser.add_argument("--rotation", type=int, choices=(0, 90, 180, 270), default=DEFAULT_ROTATION,
+                        help="Obrot obrazu zgodnie z ruchem wskazowek zegara (domyslnie: 270 = 90 w lewo)")
     parser.add_argument("--x-offset", type=int, default=2, help="Przesuniecie RAM ekranu X")
     parser.add_argument("--y-offset", type=int, default=3, help="Przesuniecie RAM ekranu Y")
     parser.add_argument("--rgb-panel", action="store_true", help="Zamien tryb BGR na RGB")

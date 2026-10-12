@@ -16,11 +16,25 @@ from typing import Literal
 
 WIDTH = 128
 HEIGHT = 128
+DEFAULT_ROTATION = 270  # 270 degrees clockwise equals 90 counterclockwise.
 
 _DC = 25
 _RESET = 27
 _BACKLIGHT = 24
-_BUTTON_PINS = {"up": 17, "down": 18, "select": 22, "back": 23}
+_INPUT_PINS = {
+    "joy_up": 13,
+    "joy_down": 26,
+    "joy_left": 5,
+    "joy_right": 19,
+    "joy_center": 6,
+}
+_ACTIONS = {
+    "joy_up": "up",
+    "joy_down": "down",
+    "joy_left": "back",
+    "joy_right": "select",
+    "joy_center": "select",
+}
 ButtonName = Literal["up", "down", "select", "back"]
 
 
@@ -35,7 +49,7 @@ class Display:
     def __init__(
         self,
         *,
-        rotation: int = 0,
+        rotation: int = DEFAULT_ROTATION,
         x_offset: int = 2,
         y_offset: int = 3,
         spi_hz: int = 8_000_000,
@@ -175,7 +189,7 @@ class Display:
 
 
 class Buttons:
-    """Four active-low HAT keys, K1/K2/K3/K4 = up/down/select/back.
+    """Five-way joystick, active low with internal pull-ups.
 
     ``poll()`` debounces presses. Up/down repeat while held for long menus;
     select/back fire only once so actions cannot start accidentally.
@@ -200,12 +214,13 @@ class Buttons:
         self._repeat_delay_s = repeat_delay_s
         self._repeat_interval_s = repeat_interval_s
         self._next_repeat_at: float | None = None
-        self._candidate: ButtonName | None = None
-        self._stable: ButtonName | None = None
+        self._candidate: str | None = None
+        self._stable: str | None = None
+        self.last_source: str | None = None
         self._changed_at = time.monotonic()
         try:
             self._chip = gpio.gpiochip_open(gpio_chip)
-            for pin in _BUTTON_PINS.values():
+            for pin in _INPUT_PINS.values():
                 gpio.gpio_claim_input(self._chip, pin, gpio.SET_PULL_UP)
                 self._claimed.append(pin)
         except BaseException:
@@ -213,35 +228,43 @@ class Buttons:
             raise
 
     def read(self) -> frozenset[ButtonName]:
-        """Read raw key levels; returns all currently pressed keys."""
+        """Return logical actions of the currently pressed physical controls."""
+        return frozenset(_ACTIONS[source] for source in self.read_raw())
+
+    def read_raw(self) -> frozenset[str]:
+        """Return physical input names, useful for checking the HAT wiring."""
         if self._closed:
             raise RuntimeError("buttons are closed")
         return frozenset(
-            name for name, pin in _BUTTON_PINS.items()
+            name for name, pin in _INPUT_PINS.items()
             if self._gpio.gpio_read(self._chip, pin) == 0
         )
 
     def poll(self) -> ButtonName | None:
         """Return the next debounced key-down event or ``None``."""
-        pressed = self.read()
-        # With multiple pressed keys, K1 has priority over K2, etc.
-        current = next((name for name in _BUTTON_PINS if name in pressed), None)
+        pressed = self.read_raw()
+        # A direction takes priority if two joystick contacts close together.
+        current = next((name for name in _INPUT_PINS if name in pressed), None)
+        action = _ACTIONS[current] if current is not None else None
         now = time.monotonic()
         if current != self._candidate:
             self._candidate = current
             self._changed_at = now
         if current != self._stable and now - self._changed_at >= self._debounce_s:
             self._stable = current
-            self._next_repeat_at = now + self._repeat_delay_s if current in ("up", "down") else None
+            self._next_repeat_at = now + self._repeat_delay_s if action in ("up", "down") else None
             if current is not None:
-                return current
-        if current == self._stable and current in ("up", "down") and self._next_repeat_at is not None and now >= self._next_repeat_at:
+                self.last_source = current
+                return action
+        if (current == self._stable and action in ("up", "down")
+                and self._next_repeat_at is not None and now >= self._next_repeat_at):
             self._next_repeat_at = now + self._repeat_interval_s
-            return current
+            self.last_source = current
+            return action
         return None
 
     def close(self) -> None:
-        """Release the four GPIO inputs."""
+        """Release every joystick GPIO input."""
         if self._closed:
             return
         self._closed = True

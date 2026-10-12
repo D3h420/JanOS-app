@@ -6,12 +6,12 @@ from __future__ import annotations
 import argparse
 import time
 
-from hardware import Buttons, Display
+from hardware import Buttons, DEFAULT_ROTATION, Display
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Sprawdz ekran i klawisze K1-K4")
-    parser.add_argument("--rotation", type=int, choices=(0, 90, 180, 270), default=0)
+    parser = argparse.ArgumentParser(description="Sprawdz ekran i joystick")
+    parser.add_argument("--rotation", type=int, choices=(0, 90, 180, 270), default=DEFAULT_ROTATION)
     parser.add_argument("--x-offset", type=int, default=2)
     parser.add_argument("--y-offset", type=int, default=3)
     parser.add_argument("--rgb-panel", action="store_true")
@@ -26,7 +26,7 @@ def main() -> None:
     except Exception:
         display.close()
         raise
-    last = "Nacisnij K1-K4"
+    last = "Rusz joystickiem"
     try:
         while True:
             image = Image.new("RGB", (128, 128), "black")
@@ -41,13 +41,12 @@ def main() -> None:
             while True:
                 event = buttons.poll()
                 if event:
-                    last = {"up": "K1: GORA", "down": "K2: DOL",
-                            "select": "K3: WYBOR", "back": "K4: KONIEC"}[event]
+                    last = f"{buttons.last_source}: {event}"
                     print(last, flush=True)
                     break
                 time.sleep(0.03)
-            if event == "back":
-                break
+    except KeyboardInterrupt:
+        pass
     finally:
         buttons.close()
         display.close()
