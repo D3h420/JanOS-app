@@ -32,6 +32,10 @@ cd JanOS-app
 python3 JanOS_app.py
 ```
 
+For Raspberry Pi Zero 2 W with the Seengreat 1.44-inch ST7735S HAT, see the
+[LCD setup guide](RPi0-1-44-LCD/README.md). It includes a four-button interface,
+SPI/GPIO setup and optional systemd autostart.
+
 When started without arguments, the app waits for MonsterC5 and automatically
 opens its USB UART port. On macOS it prefers the `/dev/cu.usbserial-*` call-out
 device, so `sudo` and a manually supplied port are not required.

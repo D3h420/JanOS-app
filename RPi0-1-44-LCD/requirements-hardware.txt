@@ -1,0 +1,4 @@
+# Raspberry Pi OS Bookworm: apt install python3-pil python3-spidev python3-lgpio
+Pillow>=9.4
+spidev>=3.5
+lgpio>=0.2.2
