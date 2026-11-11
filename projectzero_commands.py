@@ -104,3 +104,31 @@ COMMAND_GROUPS: Dict[str, Tuple[CommandSpec, ...]] = {
 # Commands handled by the binary-aware file manager in JanOS_app.py.
 FILE_COMMANDS = ("fs", "send_file", "uart_baud", "uart_baud_confirm", "uart_baud_status")
 
+
+# Commands with purpose-built workflows in JanOS_app.py.  They stay here as a
+# declarative contract so generated frontends can expose the same surface
+# without scraping conditional Python expressions.
+SHARED_COMMAND_GROUPS: Dict[str, Tuple[CommandSpec, ...]] = {
+    "Sniffing": (
+        CommandSpec("show_sniffer_results", "Show sniffer clients"),
+        CommandSpec("show_sniffer_results_vendor", "Show sniffer clients + vendor"),
+        CommandSpec("show_probes", "Show probe requests"),
+        CommandSpec("show_probes_vendor", "Show probes + vendor"),
+        CommandSpec("list_probes", "Numbered probe list"),
+        CommandSpec("list_probes_vendor", "Numbered probes + vendor"),
+        CommandSpec("deauth_detector", "Deauthentication detector", "[network indices]", stream=True),
+    ),
+    "GPS and Wardrive": (
+        CommandSpec("gps_set", "GPS module profile", "[m5|atgm|tab5|cap]"),
+        CommandSpec("set_gps_position", "Set external GPS position", "<lat> <lon> [alt] [accuracy]"),
+        CommandSpec("set_gps_position_cap", "Set CAP GPS position", "<lat> <lon> [alt] [accuracy]"),
+        CommandSpec("start_wardrive_promisc", "Promiscuous Wardrive", stream=True),
+        CommandSpec("start_wardrive_promisc_trace", "Promiscuous Wardrive + KML", stream=True),
+        CommandSpec("set_wardrive_channels", "Wardrive channel policy", "popular|all|custom [channels]"),
+        CommandSpec("list_dir", "List SD directory", "<absolute path> [-s]"),
+    ),
+    "SubGHz extension": (
+        CommandSpec("subghz_list", "List SubGHz signals", "mem|sd"),
+    ),
+}
+

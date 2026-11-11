@@ -1,0 +1,8 @@
+#!/bin/sh
+set -eu
+APP=/usr/share/APPLaunch/apps/janos-cardputer
+export PYTHONPATH="$APP"
+export JANOS_CARDPUTER_STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/janos-cardputer"
+cd "$APP"
+exec /usr/bin/python3 -m CardputerZero.app.main "$@"
+

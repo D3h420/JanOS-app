@@ -1,0 +1,68 @@
+name: Cardputer Zero
+
+on:
+  push:
+    paths:
+      - "JanOS_app.py"
+      - "projectzero_commands.py"
+      - "janos_core.py"
+      - "requirements.txt"
+      - "CardputerZero/**"
+      - ".github/workflows/cardputer-zero.yml"
+  pull_request:
+    paths:
+      - "JanOS_app.py"
+      - "projectzero_commands.py"
+      - "janos_core.py"
+      - "requirements.txt"
+      - "CardputerZero/**"
+      - ".github/workflows/cardputer-zero.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cardputer-zero-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify-and-package:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install Python dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Verify generated Cardputer resources
+        run: python CardputerZero/scripts/sync_from_python.py --check
+
+      - name: Run Cardputer tests
+        run: python -m unittest discover -s CardputerZero/tests -v
+
+      - name: Run root tests
+        run: python -m unittest discover -s tests -v
+
+      - name: Build ARM64 Debian package
+        run: bash CardputerZero/scripts/build.sh
+
+      - name: Inspect package metadata
+        run: dpkg-deb --info CardputerZero/dist/janos-cardputer_*_arm64.deb
+
+      - name: Upload Debian package
+        uses: actions/upload-artifact@v4
+        with:
+          name: janos-cardputer-arm64
+          path: CardputerZero/dist/janos-cardputer_*_arm64.deb
+          if-no-files-found: error
+

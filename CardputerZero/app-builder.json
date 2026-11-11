@@ -1,0 +1,8 @@
+{
+  "package_name": "janos-cardputer",
+  "version": "0.1.0",
+  "app_name": "JanOS Controller",
+  "bin_name": "janos-cardputer",
+  "description": "Native projectZero/JanOS UART controller for M5Stack Cardputer Zero"
+}
+

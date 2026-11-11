@@ -1,0 +1,15 @@
+#!/bin/sh
+set -e
+
+# APPLaunch runs applications as the normal login account. Grant only access
+# to the display, keyboard and UART groups that already exist on the image.
+app_user=${SUDO_USER:-pi}
+if [ "$app_user" != root ] && id -u "$app_user" >/dev/null 2>&1; then
+    for group in video input dialout plugdev; do
+        if getent group "$group" >/dev/null 2>&1; then
+            usermod -aG "$group" "$app_user"
+        fi
+    done
+fi
+exit 0
+

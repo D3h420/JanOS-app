@@ -24,13 +24,13 @@ import tempfile
 import re
 import readline  # For better input handling
 import unicodedata
-import base64
 import struct
 import zlib
 from datetime import datetime
 from typing import List, Dict, Tuple, Optional, Any
 
 from projectzero_commands import COMMAND_GROUPS, FILE_COMMANDS, CommandSpec
+from janos_core import fs_path64, parse_network_line as parse_core_network, validate_fta_frame
 
 # ============================================================================
 # Configuration
@@ -1020,29 +1020,19 @@ class NetworkManager:
     
     def parse_network_line(self, line: str) -> Optional[Dict[str, str]]:
         """Parse a network line from ESP32 output."""
-        # Expected format: "index","ssid","vendor","bssid","channel","auth","rssi","band"
-        if not line.startswith('"'):
+        record = parse_core_network(line)
+        if record is None:
             return None
-        
-        try:
-            # Simple CSV parsing
-            parts = [p.strip('"') for p in line.split('","')]
-            if len(parts) < 8:
-                return None
-            
-            network = {
-                'index': parts[0],
-                'ssid': parts[1] if parts[1] else "<hidden>",
-                'vendor': parts[2],
-                'bssid': parts[3],
-                'channel': parts[4],
-                'auth': parts[5],
-                'rssi': parts[6],
-                'band': parts[7]
-            }
-            return network
-        except:
-            return None
+        return {
+            'index': record.index,
+            'ssid': record.ssid or "<hidden>",
+            'vendor': record.vendor,
+            'bssid': record.bssid,
+            'channel': record.channel,
+            'auth': record.auth,
+            'rssi': record.rssi,
+            'band': record.band,
+        }
     
     def add_network(self, line: str) -> None:
         """Add a network from parsed line."""
@@ -5253,8 +5243,7 @@ class JanOS:
 
     @staticmethod
     def _fs_path64(path: str) -> str:
-        raw = path.encode("cp437")
-        return base64.b64encode(raw).decode("ascii")
+        return fs_path64(path)
 
     def _receive_ft_file(self, command: str, local_path: str) -> None:
         """Receive JanOS FTB/1 download, ACKing every verified block."""
@@ -5328,16 +5317,10 @@ class JanOS:
 
     @staticmethod
     def _validate_ack32(frame: bytes, index: int, offset: int) -> None:
-        if len(frame) != 32 or frame[:4] != b"FTA\x01":
-            raise RuntimeError("Invalid FTA/1 ACK frame")
-        ack_index = struct.unpack("<I", frame[4:8])[0]
-        status = frame[8]
-        committed = struct.unpack("<Q", frame[12:20])[0]
-        expected_crc = struct.unpack("<I", frame[20:24])[0]
-        if zlib.crc32(frame[:20]) & 0xFFFFFFFF != expected_crc:
-            raise RuntimeError("Invalid FTA/1 ACK CRC")
-        if status != 0x06 or ack_index != index or committed != offset:
-            raise RuntimeError(f"Upload rejected (status=0x{status:02x}, index={ack_index}, offset={committed})")
+        try:
+            validate_fta_frame(frame, index, offset)
+        except ValueError as error:
+            raise RuntimeError(str(error)) from error
 
     def fs_upload(self, local_path: str, remote_path: str, replace: bool) -> None:
         """Upload one file through the transactional FS/1 + FTB/1 protocol."""

@@ -1,0 +1,2866 @@
+{
+  "commands": [
+    {
+      "arguments": "",
+      "command": "add_ssid",
+      "confirm": false,
+      "groups": [
+        "Python workflows"
+      ],
+      "label": "Add Ssid",
+      "python_handlers": [
+        {
+          "function": "beacon_spam_ssid_list_menu",
+          "transport": "send"
+        }
+      ],
+      "sources": [
+        "JanOS_app.py:3102"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "",
+      "command": "arp_ban",
+      "confirm": false,
+      "groups": [
+        "Python workflows"
+      ],
+      "label": "Arp Ban",
+      "python_handlers": [
+        {
+          "function": "start_arp_attack",
+          "transport": "send"
+        }
+      ],
+      "sources": [
+        "JanOS_app.py:3623"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "capabilities|list|inspect|cancel ...",
+      "command": "artifact_inventory",
+      "confirm": false,
+      "groups": [
+        "Handshake and cracking"
+      ],
+      "label": "Capture artifact inventory",
+      "python_handlers": [],
+      "sources": [
+        "projectzero_commands.py"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "",
+      "command": "board_name",
+      "confirm": false,
+      "groups": [
+        "Python workflows"
+      ],
+      "label": "Board Name",
+      "python_handlers": [
+        {
+          "function": "system_menu",
+          "transport": "oneshot"
+        }
+      ],
+      "sources": [
+        "JanOS_app.py:5505"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "[read|set ...]",
+      "command": "boot_button",
+      "confirm": false,
+      "groups": [
+        "Hardware and diagnostics"
+      ],
+      "label": "Boot-button action",
+      "python_handlers": [],
+      "sources": [
+        "projectzero_commands.py"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "start|status|clients|stats|stop [options]",
+      "command": "capture_gateway",
+      "confirm": false,
+      "groups": [
+        "Portals and gateways"
+      ],
+      "label": "Capture Gateway",
+      "python_handlers": [],
+      "sources": [
+        "projectzero_commands.py"
+      ],
+      "stream": true
+    },
+    {
+      "arguments": "",
+      "command": "channel_time",
+      "confirm": false,
+      "groups": [
+        "Python workflows"
+      ],
+      "label": "Channel Time",
+      "python_handlers": [
+        {
+          "function": "system_channel_time",
+          "transport": "prompt"
+        }
+      ],
+      "sources": [
+        "JanOS_app.py:4705"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "",
+      "command": "channel_view",
+      "confirm": false,
+      "groups": [
+        "Python workflows"
+      ],
+      "label": "Channel View",
+      "python_handlers": [
+        {
+          "function": "start_channel_view",
+          "transport": "stream"
+        }
+      ],
+      "sources": [
+        "JanOS_app.py:1872"
+      ],
+      "stream": true
+    },
+    {
+      "arguments": "",
+      "command": "clear_sniffer_results",
+      "confirm": false,
+      "groups": [
+        "Python workflows"
+      ],
+      "label": "Clear Sniffer Results",
+      "python_handlers": [
+        {
+          "function": "clear_sniffer_results",
+          "transport": "oneshot"
+        }
+      ],
+      "sources": [
+        "JanOS_app.py:1831"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "capabilities|probe|receive|reset|diag|start|status|cancel ...",
+      "command": "crack_worker",
+      "confirm": false,
+      "groups": [
+        "Handshake and cracking"
+      ],
+      "label": "Distributed crack worker",
+      "python_handlers": [],
+      "sources": [
+        "projectzero_commands.py"
+      ],
+      "stream": true
+    },
+    {
+      "arguments": "[network indices]",
+      "command": "deauth_detector",
+      "confirm": false,
+      "groups": [
+        "Sniffing"
+      ],
+      "label": "Deauthentication detector",
+      "python_handlers": [],
+      "sources": [
+        "projectzero_commands.py"
+      ],
+      "stream": true
+    },
+    {
+      "arguments": "",
+      "command": "display",
+      "confirm": false,
+      "groups": [
+        "Python workflows"
+      ],
+      "label": "Display",
+      "python_handlers": [
+        {
+          "function": "system_display_setting",
+          "transport": "prompt"
+        }
+      ],
+      "sources": [
+        "JanOS_app.py:4685"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "",
+      "command": "download",
+      "confirm": true,
+      "groups": [
+        "OTA and firmware"
+      ],
+      "label": "Enter ROM download mode",
+      "python_handlers": [],
+      "sources": [
+        "projectzero_commands.py"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "",
+      "command": "file_delete",
+      "confirm": false,
+      "groups": [
+        "Python workflows"
+      ],
+      "label": "File Delete",
+      "python_handlers": [
+        {
+          "function": "list_dir_entries",
+          "transport": "send"
+        }
+      ],
+      "sources": [
+        "JanOS_app.py:4148"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "",
+      "command": "fs",
+      "confirm": false,
+      "groups": [
+        "SD / binary transfer"
+      ],
+      "label": "Fs",
+      "python_handlers": [
+        {
+          "function": "projectzero_file_menu",
+          "transport": "oneshot"
+        }
+      ],
+      "sources": [
+        "JanOS_app.py:5420",
+        "JanOS_app.py:5424",
+        "JanOS_app.py:5438",
+        "projectzero_commands.py:FILE_COMMANDS"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "",
+      "command": "get_wardrive_config",
+      "confirm": false,
+      "groups": [
+        "Python workflows"
+      ],
+      "label": "Get Wardrive Config",
+      "python_handlers": [
+        {
+          "function": "wardrive_config_menu",
+          "transport": "oneshot"
+        }
+      ],
+      "sources": [
+        "JanOS_app.py:3909"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "[m5|atgm|tab5|cap]",
+      "command": "gps_set",
+      "confirm": false,
+      "groups": [
+        "GPS and Wardrive"
+      ],
+      "label": "GPS module profile",
+      "python_handlers": [],
+      "sources": [
+        "projectzero_commands.py"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "",
+      "command": "help",
+      "confirm": false,
+      "groups": [
+        "Python workflows"
+      ],
+      "label": "Help",
+      "python_handlers": [
+        {
+          "function": "probe_projectzero_capabilities",
+          "transport": "send"
+        },
+        {
+          "function": "system_help",
+          "transport": "oneshot"
+        }
+      ],
+      "sources": [
+        "JanOS_app.py:4657",
+        "JanOS_app.py:5167"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "<BSSID> [label]",
+      "command": "home_add",
+      "confirm": false,
+      "groups": [
+        "Wardrive services"
+      ],
+      "label": "Add protected home network",
+      "python_handlers": [],
+      "sources": [
+        "projectzero_commands.py"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "",
+      "command": "home_list",
+      "confirm": false,
+      "groups": [
+        "Wardrive services"
+      ],
+      "label": "List protected home networks",
+      "python_handlers": [],
+      "sources": [
+        "projectzero_commands.py"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "<index|BSSID>",
+      "command": "home_remove",
+      "confirm": false,
+      "groups": [
+        "Wardrive services"
+      ],
+      "label": "Remove protected home network",
+      "python_handlers": [],
+      "sources": [
+        "projectzero_commands.py"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "",
+      "command": "init_nrf24",
+      "confirm": false,
+      "groups": [
+        "Hardware and diagnostics"
+      ],
+      "label": "Initialize nRF24L01+",
+      "python_handlers": [],
+      "sources": [
+        "projectzero_commands.py"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "",
+      "command": "inspect_network",
+      "confirm": false,
+      "groups": [
+        "Python workflows"
+      ],
+      "label": "Inspect Network",
+      "python_handlers": [
+        {
+          "function": "inspect_network",
+          "transport": "oneshot"
+        }
+      ],
+      "sources": [
+        "JanOS_app.py:1614"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "capabilities|scan|list|select|start|status|stop ...",
+      "command": "jwps",
+      "confirm": false,
+      "groups": [
+        "WPS and Bluetooth"
+      ],
+      "label": "Machine-readable WPS workflow",
+      "python_handlers": [],
+      "sources": [
+        "projectzero_commands.py"
+      ],
+      "stream": true
+    },
+    {
+      "arguments": "",
+      "command": "led",
+      "confirm": false,
+      "groups": [
+        "Python workflows"
+      ],
+      "label": "Led",
+      "python_handlers": [
+        {
+          "function": "system_led_setting",
+          "transport": "prompt"
+        }
+      ],
+      "sources": [
+        "JanOS_app.py:4695"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "<absolute path> [-s]",
+      "command": "list_dir",
+      "confirm": false,
+      "groups": [
+        "GPS and Wardrive"
+      ],
+      "label": "List SD directory",
+      "python_handlers": [],
+      "sources": [
+        "projectzero_commands.py"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "",
+      "command": "list_hosts",
+      "confirm": false,
+      "groups": [
+        "Python workflows"
+      ],
+      "label": "List Hosts",
+      "python_handlers": [
+        {
+          "function": "start_arp_attack",
+          "transport": "send"
+        }
+      ],
+      "sources": [
+        "JanOS_app.py:3555"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "",
+      "command": "list_hosts_vendor",
+      "confirm": false,
+      "groups": [
+        "Wi-Fi tools"
+      ],
+      "label": "Connected hosts with vendor",
+      "python_handlers": [],
+      "sources": [
+        "projectzero_commands.py"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "",
+      "command": "list_probes",
+      "confirm": false,
+      "groups": [
+        "Sniffing"
+      ],
+      "label": "Numbered probe list",
+      "python_handlers": [],
+      "sources": [
+        "projectzero_commands.py"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "",
+      "command": "list_probes_vendor",
+      "confirm": false,
+      "groups": [
+        "Sniffing"
+      ],
+      "label": "Numbered probes + vendor",
+      "python_handlers": [],
+      "sources": [
+        "projectzero_commands.py"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "",
+      "command": "list_sd",
+      "confirm": false,
+      "groups": [
+        "Python workflows"
+      ],
+      "label": "List Sd",
+      "python_handlers": [
+        {
+          "function": "get_html_files_from_sd",
+          "transport": "send"
+        },
+        {
+          "function": "system_list_sd",
+          "transport": "send"
+        }
+      ],
+      "sources": [
+        "JanOS_app.py:2127",
+        "JanOS_app.py:4643"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "",
+      "command": "list_ssid",
+      "confirm": false,
+      "groups": [
+        "Python workflows"
+      ],
+      "label": "List Ssid",
+      "python_handlers": [
+        {
+          "function": "_run_ssid_list_command",
+          "transport": "send"
+        }
+      ],
+      "sources": [
+        "JanOS_app.py:3005"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "",
+      "command": "list_ssids",
+      "confirm": false,
+      "groups": [
+        "Python workflows"
+      ],
+      "label": "List Ssids",
+      "python_handlers": [
+        {
+          "function": "_run_ssid_list_command",
+          "transport": "send"
+        }
+      ],
+      "sources": [
+        "JanOS_app.py:2991"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "<ota_0|ota_1>",
+      "command": "ota_boot",
+      "confirm": true,
+      "groups": [
+        "OTA and firmware"
+      ],
+      "label": "Boot selected OTA partition",
+      "python_handlers": [],
+      "sources": [
+        "projectzero_commands.py"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "[main|dev]",
+      "command": "ota_channel",
+      "confirm": false,
+      "groups": [
+        "OTA and firmware"
+      ],
+      "label": "OTA channel",
+      "python_handlers": [],
+      "sources": [
+        "projectzero_commands.py"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "[latest|tag]",
+      "command": "ota_check",
+      "confirm": true,
+      "groups": [
+        "OTA and firmware"
+      ],
+      "label": "Check/apply OTA update",
+      "python_handlers": [],
+      "sources": [
+        "projectzero_commands.py"
+      ],
+      "stream": true
+    },
+    {
+      "arguments": "",
+      "command": "ota_info",
+      "confirm": false,
+      "groups": [
+        "OTA and firmware"
+      ],
+      "label": "OTA partition information",
+      "python_handlers": [],
+      "sources": [
+        "projectzero_commands.py"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "",
+      "command": "ota_list",
+      "confirm": false,
+      "groups": [
+        "OTA and firmware"
+      ],
+      "label": "List available releases",
+      "python_handlers": [],
+      "sources": [
+        "projectzero_commands.py"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "",
+      "command": "packet_monitor",
+      "confirm": false,
+      "groups": [
+        "Python workflows"
+      ],
+      "label": "Packet Monitor",
+      "python_handlers": [
+        {
+          "function": "start_packet_monitor",
+          "transport": "stream"
+        }
+      ],
+      "sources": [
+        "JanOS_app.py:1868"
+      ],
+      "stream": true
+    },
+    {
+      "arguments": "",
+      "command": "ping",
+      "confirm": false,
+      "groups": [
+        "Python workflows"
+      ],
+      "label": "Ping",
+      "python_handlers": [
+        {
+          "function": "system_ping",
+          "transport": "send"
+        }
+      ],
+      "sources": [
+        "JanOS_app.py:4621"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "status|on|off",
+      "command": "radio_protect",
+      "confirm": false,
+      "groups": [
+        "Wi-Fi tools"
+      ],
+      "label": "Shared-radio protection",
+      "python_handlers": [],
+      "sources": [
+        "projectzero_commands.py"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "",
+      "command": "reboot",
+      "confirm": false,
+      "groups": [
+        "Python workflows"
+      ],
+      "label": "Reboot",
+      "python_handlers": [
+        {
+          "function": "system_reboot",
+          "transport": "send"
+        }
+      ],
+      "sources": [
+        "JanOS_app.py:4600"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "",
+      "command": "remove_ssid",
+      "confirm": false,
+      "groups": [
+        "Python workflows"
+      ],
+      "label": "Remove Ssid",
+      "python_handlers": [
+        {
+          "function": "beacon_spam_ssid_list_menu",
+          "transport": "send"
+        }
+      ],
+      "sources": [
+        "JanOS_app.py:3137"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "",
+      "command": "sae_overflow",
+      "confirm": false,
+      "groups": [
+        "Python workflows"
+      ],
+      "label": "Sae Overflow",
+      "python_handlers": [
+        {
+          "function": "start_sae_overflow_attack",
+          "transport": "send"
+        }
+      ],
+      "sources": [
+        "JanOS_app.py:2024"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "",
+      "command": "save_handshake",
+      "confirm": false,
+      "groups": [
+        "Handshake and cracking"
+      ],
+      "label": "Save current handshake",
+      "python_handlers": [],
+      "sources": [
+        "projectzero_commands.py"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "[arguments]",
+      "command": "save_pass",
+      "confirm": false,
+      "groups": [
+        "Hardware and diagnostics"
+      ],
+      "label": "Persist captured credentials",
+      "python_handlers": [],
+      "sources": [
+        "projectzero_commands.py"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "",
+      "command": "scan_airtag",
+      "confirm": false,
+      "groups": [
+        "Python workflows"
+      ],
+      "label": "Scan Airtag",
+      "python_handlers": [
+        {
+          "function": "start_airtag_scan",
+          "transport": "stream"
+        }
+      ],
+      "sources": [
+        "JanOS_app.py:3994"
+      ],
+      "stream": true
+    },
+    {
+      "arguments": "",
+      "command": "scan_bt",
+      "confirm": false,
+      "groups": [
+        "Python workflows"
+      ],
+      "label": "Scan Bt",
+      "python_handlers": [
+        {
+          "function": "scan_ble_devices",
+          "transport": "oneshot"
+        }
+      ],
+      "sources": [
+        "JanOS_app.py:3990"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "",
+      "command": "scan_networks",
+      "confirm": false,
+      "groups": [
+        "Python workflows"
+      ],
+      "label": "Scan Networks",
+      "python_handlers": [
+        {
+          "function": "_scan_networks_for_connect",
+          "transport": "send"
+        },
+        {
+          "function": "setup_and_start_evil_twin",
+          "transport": "send"
+        }
+      ],
+      "sources": [
+        "JanOS_app.py:2668",
+        "JanOS_app.py:3212"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "[arguments]",
+      "command": "sd_benchmark",
+      "confirm": false,
+      "groups": [
+        "Hardware and diagnostics"
+      ],
+      "label": "SD performance benchmark",
+      "python_handlers": [],
+      "sources": [
+        "projectzero_commands.py"
+      ],
+      "stream": true
+    },
+    {
+      "arguments": "",
+      "command": "sd_status",
+      "confirm": false,
+      "groups": [
+        "Python workflows"
+      ],
+      "label": "Sd Status",
+      "python_handlers": [
+        {
+          "function": "sd_data_menu",
+          "transport": "oneshot"
+        },
+        {
+          "function": "system_menu",
+          "transport": "oneshot"
+        }
+      ],
+      "sources": [
+        "JanOS_app.py:4216",
+        "JanOS_app.py:5507"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "[arguments]",
+      "command": "secret",
+      "confirm": false,
+      "groups": [
+        "Hardware and diagnostics"
+      ],
+      "label": "Firmware secret/diagnostic",
+      "python_handlers": [],
+      "sources": [
+        "projectzero_commands.py"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "",
+      "command": "select_html",
+      "confirm": false,
+      "groups": [
+        "Python workflows"
+      ],
+      "label": "Select Html",
+      "python_handlers": [
+        {
+          "function": "select_html_file_menu",
+          "transport": "send"
+        }
+      ],
+      "sources": [
+        "JanOS_app.py:2214"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "",
+      "command": "select_networks",
+      "confirm": false,
+      "groups": [
+        "Python workflows"
+      ],
+      "label": "Select Networks",
+      "python_handlers": [
+        {
+          "function": "set_network_selection",
+          "transport": "send"
+        },
+        {
+          "function": "setup_and_start_evil_twin",
+          "transport": "send"
+        },
+        {
+          "function": "setup_and_start_sae_overflow",
+          "transport": "send"
+        }
+      ],
+      "sources": [
+        "JanOS_app.py:1634",
+        "JanOS_app.py:2413",
+        "JanOS_app.py:2684"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "<index> [index ...]",
+      "command": "select_stations",
+      "confirm": false,
+      "groups": [
+        "Wi-Fi tools"
+      ],
+      "label": "Select station indices",
+      "python_handlers": [],
+      "sources": [
+        "projectzero_commands.py"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "[arguments]",
+      "command": "selftest",
+      "confirm": false,
+      "groups": [
+        "Hardware and diagnostics"
+      ],
+      "label": "Board self-test",
+      "python_handlers": [],
+      "sources": [
+        "projectzero_commands.py"
+      ],
+      "stream": true
+    },
+    {
+      "arguments": "",
+      "command": "send_file",
+      "confirm": false,
+      "groups": [
+        "SD / binary transfer"
+      ],
+      "label": "Send File",
+      "python_handlers": [],
+      "sources": [
+        "projectzero_commands.py:FILE_COMMANDS"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "",
+      "command": "set_antisurv_sensitivity",
+      "confirm": false,
+      "groups": [
+        "Python workflows"
+      ],
+      "label": "Set Antisurv Sensitivity",
+      "python_handlers": [
+        {
+          "function": "wardrive_config_menu",
+          "transport": "prompt"
+        }
+      ],
+      "sources": [
+        "JanOS_app.py:3960"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "<lat> <lon> [alt] [accuracy]",
+      "command": "set_gps_position",
+      "confirm": false,
+      "groups": [
+        "GPS and Wardrive"
+      ],
+      "label": "Set external GPS position",
+      "python_handlers": [],
+      "sources": [
+        "projectzero_commands.py"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "<lat> <lon> [alt] [accuracy]",
+      "command": "set_gps_position_cap",
+      "confirm": false,
+      "groups": [
+        "GPS and Wardrive"
+      ],
+      "label": "Set CAP GPS position",
+      "python_handlers": [],
+      "sources": [
+        "projectzero_commands.py"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "[arguments]",
+      "command": "set_html",
+      "confirm": false,
+      "groups": [
+        "Portals and gateways"
+      ],
+      "label": "Upload/select portal HTML",
+      "python_handlers": [],
+      "sources": [
+        "projectzero_commands.py"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "",
+      "command": "set_wardrive_bands",
+      "confirm": false,
+      "groups": [
+        "Python workflows"
+      ],
+      "label": "Set Wardrive Bands",
+      "python_handlers": [
+        {
+          "function": "wardrive_config_menu",
+          "transport": "prompt"
+        }
+      ],
+      "sources": [
+        "JanOS_app.py:3911"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "popular|all|custom [channels]",
+      "command": "set_wardrive_channels",
+      "confirm": false,
+      "groups": [
+        "GPS and Wardrive"
+      ],
+      "label": "Wardrive channel policy",
+      "python_handlers": [],
+      "sources": [
+        "projectzero_commands.py"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "",
+      "command": "set_wardrive_cooldown",
+      "confirm": false,
+      "groups": [
+        "Python workflows"
+      ],
+      "label": "Set Wardrive Cooldown",
+      "python_handlers": [
+        {
+          "function": "wardrive_config_menu",
+          "transport": "prompt"
+        }
+      ],
+      "sources": [
+        "JanOS_app.py:3949"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "",
+      "command": "set_wardrive_memcap",
+      "confirm": false,
+      "groups": [
+        "Python workflows"
+      ],
+      "label": "Set Wardrive Memcap",
+      "python_handlers": [
+        {
+          "function": "wardrive_config_menu",
+          "transport": "prompt"
+        }
+      ],
+      "sources": [
+        "JanOS_app.py:3941"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "",
+      "command": "set_wardrive_rssi_delta",
+      "confirm": false,
+      "groups": [
+        "Python workflows"
+      ],
+      "label": "Set Wardrive Rssi Delta",
+      "python_handlers": [
+        {
+          "function": "wardrive_config_menu",
+          "transport": "oneshot"
+        }
+      ],
+      "sources": [
+        "JanOS_app.py:3934"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "",
+      "command": "show_pass",
+      "confirm": false,
+      "groups": [
+        "Python workflows"
+      ],
+      "label": "Show Pass",
+      "python_handlers": [
+        {
+          "function": "sd_data_show_pass_menu",
+          "transport": "send"
+        },
+        {
+          "function": "show_portal_captured_data",
+          "transport": "send"
+        }
+      ],
+      "sources": [
+        "JanOS_app.py:2892",
+        "JanOS_app.py:4172",
+        "JanOS_app.py:4174"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "",
+      "command": "show_probes",
+      "confirm": false,
+      "groups": [
+        "Sniffing"
+      ],
+      "label": "Show probe requests",
+      "python_handlers": [],
+      "sources": [
+        "projectzero_commands.py"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "",
+      "command": "show_probes_vendor",
+      "confirm": false,
+      "groups": [
+        "Sniffing"
+      ],
+      "label": "Show probes + vendor",
+      "python_handlers": [],
+      "sources": [
+        "projectzero_commands.py"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "",
+      "command": "show_scan_results",
+      "confirm": false,
+      "groups": [
+        "Python workflows"
+      ],
+      "label": "Show Scan Results",
+      "python_handlers": [
+        {
+          "function": "_scan_networks_for_connect",
+          "transport": "send"
+        }
+      ],
+      "sources": [
+        "JanOS_app.py:3243"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "",
+      "command": "show_sniffer_clients",
+      "confirm": false,
+      "groups": [
+        "Wi-Fi tools"
+      ],
+      "label": "Structured AP/client snapshot",
+      "python_handlers": [],
+      "sources": [
+        "projectzero_commands.py"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "",
+      "command": "show_sniffer_results",
+      "confirm": false,
+      "groups": [
+        "Sniffing"
+      ],
+      "label": "Show sniffer clients",
+      "python_handlers": [],
+      "sources": [
+        "projectzero_commands.py"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "",
+      "command": "show_sniffer_results_vendor",
+      "confirm": false,
+      "groups": [
+        "Sniffing"
+      ],
+      "label": "Show sniffer clients + vendor",
+      "python_handlers": [],
+      "sources": [
+        "projectzero_commands.py"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "<0|1>",
+      "command": "sniffer_debug",
+      "confirm": false,
+      "groups": [
+        "Wi-Fi tools"
+      ],
+      "label": "Sniffer debug logging",
+      "python_handlers": [],
+      "sources": [
+        "projectzero_commands.py"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "status|random|set <MAC>|factory",
+      "command": "sta_mac",
+      "confirm": false,
+      "groups": [
+        "Wi-Fi tools"
+      ],
+      "label": "Persistent STA MAC policy",
+      "python_handlers": [],
+      "sources": [
+        "projectzero_commands.py"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "[SSID] [password]",
+      "command": "start_admin_portal",
+      "confirm": false,
+      "groups": [
+        "Portals and gateways"
+      ],
+      "label": "SD administration portal",
+      "python_handlers": [],
+      "sources": [
+        "projectzero_commands.py"
+      ],
+      "stream": true
+    },
+    {
+      "arguments": "",
+      "command": "start_antisurveillance",
+      "confirm": false,
+      "groups": [
+        "Python workflows"
+      ],
+      "label": "Start Antisurveillance",
+      "python_handlers": [
+        {
+          "function": "start_antisurveillance",
+          "transport": "stream"
+        }
+      ],
+      "sources": [
+        "JanOS_app.py:3998"
+      ],
+      "stream": true
+    },
+    {
+      "arguments": "",
+      "command": "start_ap_locator",
+      "confirm": false,
+      "groups": [
+        "Python workflows"
+      ],
+      "label": "Start Ap Locator",
+      "python_handlers": [
+        {
+          "function": "start_ap_locator",
+          "transport": "stream"
+        }
+      ],
+      "sources": [
+        "JanOS_app.py:1856"
+      ],
+      "stream": true
+    },
+    {
+      "arguments": "\"SSID1\" [\"SSID2\" ...]",
+      "command": "start_beacon_spam",
+      "confirm": false,
+      "groups": [
+        "Portals and gateways"
+      ],
+      "label": "Beacon spam from arguments",
+      "python_handlers": [],
+      "sources": [
+        "projectzero_commands.py"
+      ],
+      "stream": true
+    },
+    {
+      "arguments": "",
+      "command": "start_beacon_spam_ssids",
+      "confirm": false,
+      "groups": [
+        "Python workflows"
+      ],
+      "label": "Start Beacon Spam Ssids",
+      "python_handlers": [
+        {
+          "function": "start_beacon_spam_attack",
+          "transport": "send"
+        }
+      ],
+      "sources": [
+        "JanOS_app.py:3028"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "",
+      "command": "start_blackout",
+      "confirm": false,
+      "groups": [
+        "Python workflows"
+      ],
+      "label": "Start Blackout",
+      "python_handlers": [
+        {
+          "function": "start_blackout_attack",
+          "transport": "send"
+        }
+      ],
+      "sources": [
+        "JanOS_app.py:1957"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "[20|50|100|200|500]",
+      "command": "start_blespam",
+      "confirm": false,
+      "groups": [
+        "WPS and Bluetooth"
+      ],
+      "label": "Apple/Samsung BLE spam",
+      "python_handlers": [],
+      "sources": [
+        "projectzero_commands.py"
+      ],
+      "stream": true
+    },
+    {
+      "arguments": "[arguments]",
+      "command": "start_darksword",
+      "confirm": false,
+      "groups": [
+        "Portals and gateways"
+      ],
+      "label": "Darksword portal",
+      "python_handlers": [],
+      "sources": [
+        "projectzero_commands.py"
+      ],
+      "stream": true
+    },
+    {
+      "arguments": "",
+      "command": "start_deauth",
+      "confirm": false,
+      "groups": [
+        "Python workflows"
+      ],
+      "label": "Start Deauth",
+      "python_handlers": [
+        {
+          "function": "start_deauth_attack",
+          "transport": "send"
+        }
+      ],
+      "sources": [
+        "JanOS_app.py:1917"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "<BSSID> <station-MAC>",
+      "command": "start_deauth_station",
+      "confirm": false,
+      "groups": [
+        "Wi-Fi tools"
+      ],
+      "label": "Deauth one station",
+      "python_handlers": [],
+      "sources": [
+        "projectzero_commands.py"
+      ],
+      "stream": true
+    },
+    {
+      "arguments": "",
+      "command": "start_evil_twin",
+      "confirm": false,
+      "groups": [
+        "Python workflows"
+      ],
+      "label": "Start Evil Twin",
+      "python_handlers": [
+        {
+          "function": "start_evil_twin_monitoring",
+          "transport": "send"
+        }
+      ],
+      "sources": [
+        "JanOS_app.py:2754"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "",
+      "command": "start_gps_raw",
+      "confirm": false,
+      "groups": [
+        "Python workflows"
+      ],
+      "label": "Start Gps Raw",
+      "python_handlers": [
+        {
+          "function": "start_gps_raw_monitor",
+          "transport": "send"
+        }
+      ],
+      "sources": [
+        "JanOS_app.py:3744"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "",
+      "command": "start_handshake",
+      "confirm": false,
+      "groups": [
+        "Python workflows"
+      ],
+      "label": "Start Handshake",
+      "python_handlers": [
+        {
+          "function": "start_handshake_attack",
+          "transport": "send"
+        }
+      ],
+      "sources": [
+        "JanOS_app.py:2079"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "[ble|bt|wifi|drone|all]",
+      "command": "start_jammer24",
+      "confirm": false,
+      "groups": [
+        "Hardware and diagnostics"
+      ],
+      "label": "nRF24 2.4 GHz jammer",
+      "python_handlers": [],
+      "sources": [
+        "projectzero_commands.py"
+      ],
+      "stream": true
+    },
+    {
+      "arguments": "<probe-index>",
+      "command": "start_karma",
+      "confirm": false,
+      "groups": [
+        "Portals and gateways"
+      ],
+      "label": "Karma attack from probe",
+      "python_handlers": [],
+      "sources": [
+        "projectzero_commands.py"
+      ],
+      "stream": true
+    },
+    {
+      "arguments": "[target/options]",
+      "command": "start_nmap",
+      "confirm": false,
+      "groups": [
+        "Wi-Fi tools"
+      ],
+      "label": "Network host/port scan",
+      "python_handlers": [],
+      "sources": [
+        "projectzero_commands.py"
+      ],
+      "stream": true
+    },
+    {
+      "arguments": "radio|net|gateway",
+      "command": "start_pcap",
+      "confirm": false,
+      "groups": [
+        "Portals and gateways"
+      ],
+      "label": "PCAP capture",
+      "python_handlers": [
+        {
+          "function": "start_mitm_attack",
+          "transport": "send"
+        }
+      ],
+      "sources": [
+        "JanOS_app.py:3681",
+        "projectzero_commands.py"
+      ],
+      "stream": true
+    },
+    {
+      "arguments": "",
+      "command": "start_portal",
+      "confirm": false,
+      "groups": [
+        "Python workflows"
+      ],
+      "label": "Start Portal",
+      "python_handlers": [
+        {
+          "function": "start_portal_monitoring",
+          "transport": "send"
+        }
+      ],
+      "sources": [
+        "JanOS_app.py:2521"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "[options]",
+      "command": "start_rogue_gitm",
+      "confirm": false,
+      "groups": [
+        "Portals and gateways"
+      ],
+      "label": "Rogue GITM",
+      "python_handlers": [],
+      "sources": [
+        "projectzero_commands.py"
+      ],
+      "stream": true
+    },
+    {
+      "arguments": "\"SSID\" \"password\"",
+      "command": "start_rogueap",
+      "confirm": false,
+      "groups": [
+        "Portals and gateways"
+      ],
+      "label": "WPA2 Rogue AP",
+      "python_handlers": [],
+      "sources": [
+        "projectzero_commands.py"
+      ],
+      "stream": true
+    },
+    {
+      "arguments": "",
+      "command": "start_sniffer",
+      "confirm": false,
+      "groups": [
+        "Python workflows"
+      ],
+      "label": "Start Sniffer",
+      "python_handlers": [
+        {
+          "function": "start_sniffer",
+          "transport": "send"
+        }
+      ],
+      "sources": [
+        "JanOS_app.py:1660"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "",
+      "command": "start_sniffer_dog",
+      "confirm": false,
+      "groups": [
+        "Python workflows"
+      ],
+      "label": "Start Sniffer Dog",
+      "python_handlers": [
+        {
+          "function": "start_sniffer_dog",
+          "transport": "stream"
+        }
+      ],
+      "sources": [
+        "JanOS_app.py:1835"
+      ],
+      "stream": true
+    },
+    {
+      "arguments": "",
+      "command": "start_sniffer_noscan",
+      "confirm": false,
+      "groups": [
+        "Python workflows"
+      ],
+      "label": "Start Sniffer Noscan",
+      "python_handlers": [
+        {
+          "function": "start_sniffer",
+          "transport": "send"
+        }
+      ],
+      "sources": [
+        "JanOS_app.py:1657"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "",
+      "command": "start_wardrive",
+      "confirm": false,
+      "groups": [
+        "Python workflows"
+      ],
+      "label": "Start Wardrive",
+      "python_handlers": [
+        {
+          "function": "start_wardrive",
+          "transport": "send"
+        }
+      ],
+      "sources": [
+        "JanOS_app.py:3827"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "",
+      "command": "start_wardrive_promisc",
+      "confirm": false,
+      "groups": [
+        "GPS and Wardrive"
+      ],
+      "label": "Promiscuous Wardrive",
+      "python_handlers": [],
+      "sources": [
+        "projectzero_commands.py"
+      ],
+      "stream": true
+    },
+    {
+      "arguments": "",
+      "command": "start_wardrive_promisc_trace",
+      "confirm": false,
+      "groups": [
+        "GPS and Wardrive"
+      ],
+      "label": "Promiscuous Wardrive + KML",
+      "python_handlers": [],
+      "sources": [
+        "projectzero_commands.py"
+      ],
+      "stream": true
+    },
+    {
+      "arguments": "[channel/options]",
+      "command": "start_zig_recon",
+      "confirm": false,
+      "groups": [
+        "Zigbee / 802.15.4"
+      ],
+      "label": "Start Zigbee/Thread/Matter recon",
+      "python_handlers": [],
+      "sources": [
+        "projectzero_commands.py"
+      ],
+      "stream": true
+    },
+    {
+      "arguments": "",
+      "command": "stop",
+      "confirm": false,
+      "groups": [
+        "Python workflows"
+      ],
+      "label": "Stop",
+      "python_handlers": [
+        {
+          "function": "_prepare_inside_network_access",
+          "transport": "send"
+        },
+        {
+          "function": "cleanup",
+          "transport": "send"
+        },
+        {
+          "function": "main_menu",
+          "transport": "send"
+        },
+        {
+          "function": "show_sniffer_probes",
+          "transport": "send"
+        },
+        {
+          "function": "show_sniffer_results",
+          "transport": "send"
+        },
+        {
+          "function": "signal_handler",
+          "transport": "send"
+        },
+        {
+          "function": "start_evil_twin_monitoring",
+          "transport": "send"
+        },
+        {
+          "function": "start_gps_raw_monitor",
+          "transport": "send"
+        },
+        {
+          "function": "start_portal_monitoring",
+          "transport": "send"
+        },
+        {
+          "function": "start_sniffer",
+          "transport": "send"
+        },
+        {
+          "function": "start_wardrive",
+          "transport": "send"
+        },
+        {
+          "function": "stop_all_attacks",
+          "transport": "send"
+        }
+      ],
+      "sources": [
+        "JanOS_app.py:1693",
+        "JanOS_app.py:1714",
+        "JanOS_app.py:1779",
+        "JanOS_app.py:2612",
+        "JanOS_app.py:2847",
+        "JanOS_app.py:3412",
+        "JanOS_app.py:3761",
+        "JanOS_app.py:3856",
+        "JanOS_app.py:4246",
+        "JanOS_app.py:4251",
+        "JanOS_app.py:4256",
+        "JanOS_app.py:4264",
+        "JanOS_app.py:4269",
+        "JanOS_app.py:4274",
+        "JanOS_app.py:4282",
+        "JanOS_app.py:4290",
+        "JanOS_app.py:4298",
+        "JanOS_app.py:4303",
+        "JanOS_app.py:4308",
+        "JanOS_app.py:5619",
+        "JanOS_app.py:5646",
+        "JanOS_app.py:5659",
+        "JanOS_app.py:5686",
+        "JanOS_app.py:5728"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "",
+      "command": "subghz_clear",
+      "confirm": false,
+      "groups": [
+        "Python workflows"
+      ],
+      "label": "Subghz Clear",
+      "python_handlers": [
+        {
+          "function": "subghz_signal_library",
+          "transport": "oneshot"
+        }
+      ],
+      "sources": [
+        "JanOS_app.py:5051"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "",
+      "command": "subghz_debug",
+      "confirm": false,
+      "groups": [
+        "Python workflows"
+      ],
+      "label": "Subghz Debug",
+      "python_handlers": [
+        {
+          "function": "subghz_debug",
+          "transport": "prompt"
+        }
+      ],
+      "sources": [
+        "JanOS_app.py:5106"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "",
+      "command": "subghz_delete",
+      "confirm": false,
+      "groups": [
+        "Python workflows"
+      ],
+      "label": "Subghz Delete",
+      "python_handlers": [
+        {
+          "function": "subghz_delete_signal",
+          "transport": "prompt"
+        },
+        {
+          "function": "subghz_signal_library",
+          "transport": "oneshot"
+        }
+      ],
+      "sources": [
+        "JanOS_app.py:5063",
+        "JanOS_app.py:5088"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "",
+      "command": "subghz_freq",
+      "confirm": false,
+      "groups": [
+        "Python workflows"
+      ],
+      "label": "Subghz Freq",
+      "python_handlers": [
+        {
+          "function": "subghz_jammer",
+          "transport": "send"
+        },
+        {
+          "function": "subghz_rx",
+          "transport": "send"
+        },
+        {
+          "function": "subghz_tesla_replay",
+          "transport": "send"
+        },
+        {
+          "function": "subghz_tools_menu",
+          "transport": "prompt"
+        }
+      ],
+      "sources": [
+        "JanOS_app.py:4726",
+        "JanOS_app.py:4832",
+        "JanOS_app.py:4885",
+        "JanOS_app.py:4937"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "",
+      "command": "subghz_freq_analyzer",
+      "confirm": false,
+      "groups": [
+        "Python workflows"
+      ],
+      "label": "Subghz Freq Analyzer",
+      "python_handlers": [
+        {
+          "function": "subghz_freq_analyzer",
+          "transport": "stream"
+        }
+      ],
+      "sources": [
+        "JanOS_app.py:4772"
+      ],
+      "stream": true
+    },
+    {
+      "arguments": "",
+      "command": "subghz_get_freq_correction",
+      "confirm": false,
+      "groups": [
+        "Python workflows"
+      ],
+      "label": "Subghz Get Freq Correction",
+      "python_handlers": [
+        {
+          "function": "subghz_frequency_correction",
+          "transport": "oneshot"
+        }
+      ],
+      "sources": [
+        "JanOS_app.py:4911"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "",
+      "command": "subghz_info",
+      "confirm": false,
+      "groups": [
+        "Python workflows"
+      ],
+      "label": "Subghz Info",
+      "python_handlers": [
+        {
+          "function": "subghz_signal_info",
+          "transport": "prompt"
+        },
+        {
+          "function": "subghz_signal_library",
+          "transport": "oneshot"
+        }
+      ],
+      "sources": [
+        "JanOS_app.py:5040",
+        "JanOS_app.py:5070"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "",
+      "command": "subghz_jam",
+      "confirm": false,
+      "groups": [
+        "Python workflows"
+      ],
+      "label": "Subghz Jam",
+      "python_handlers": [
+        {
+          "function": "subghz_jammer",
+          "transport": "stream"
+        }
+      ],
+      "sources": [
+        "JanOS_app.py:4888"
+      ],
+      "stream": true
+    },
+    {
+      "arguments": "mem|sd",
+      "command": "subghz_list",
+      "confirm": false,
+      "groups": [
+        "SubGHz extension"
+      ],
+      "label": "List SubGHz signals",
+      "python_handlers": [],
+      "sources": [
+        "projectzero_commands.py"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "",
+      "command": "subghz_rename",
+      "confirm": false,
+      "groups": [
+        "Python workflows"
+      ],
+      "label": "Subghz Rename",
+      "python_handlers": [
+        {
+          "function": "subghz_rename_signal",
+          "transport": "prompt"
+        },
+        {
+          "function": "subghz_signal_library",
+          "transport": "oneshot"
+        }
+      ],
+      "sources": [
+        "JanOS_app.py:5057",
+        "JanOS_app.py:5097"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "",
+      "command": "subghz_rx",
+      "confirm": false,
+      "groups": [
+        "Python workflows"
+      ],
+      "label": "Subghz Rx",
+      "python_handlers": [
+        {
+          "function": "subghz_rx",
+          "transport": "stream"
+        }
+      ],
+      "sources": [
+        "JanOS_app.py:4731"
+      ],
+      "stream": true
+    },
+    {
+      "arguments": "",
+      "command": "subghz_save",
+      "confirm": false,
+      "groups": [
+        "Python workflows"
+      ],
+      "label": "Subghz Save",
+      "python_handlers": [
+        {
+          "function": "subghz_save_signal",
+          "transport": "prompt"
+        },
+        {
+          "function": "subghz_signal_library",
+          "transport": "oneshot"
+        }
+      ],
+      "sources": [
+        "JanOS_app.py:5047",
+        "JanOS_app.py:5079"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "",
+      "command": "subghz_scanner",
+      "confirm": false,
+      "groups": [
+        "Python workflows"
+      ],
+      "label": "Subghz Scanner",
+      "python_handlers": [
+        {
+          "function": "subghz_scanner",
+          "transport": "stream"
+        }
+      ],
+      "sources": [
+        "JanOS_app.py:4802"
+      ],
+      "stream": true
+    },
+    {
+      "arguments": "",
+      "command": "subghz_set_freq_correction",
+      "confirm": false,
+      "groups": [
+        "Python workflows"
+      ],
+      "label": "Subghz Set Freq Correction",
+      "python_handlers": [
+        {
+          "function": "subghz_frequency_correction",
+          "transport": "prompt"
+        }
+      ],
+      "sources": [
+        "JanOS_app.py:4913"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "",
+      "command": "subghz_status",
+      "confirm": false,
+      "groups": [
+        "Python workflows"
+      ],
+      "label": "Subghz Status",
+      "python_handlers": [
+        {
+          "function": "subghz_tools_menu",
+          "transport": "oneshot"
+        }
+      ],
+      "sources": [
+        "JanOS_app.py:4935"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "",
+      "command": "subghz_stop",
+      "confirm": false,
+      "groups": [
+        "Python workflows"
+      ],
+      "label": "Subghz Stop",
+      "python_handlers": [
+        {
+          "function": "subghz_jammer",
+          "transport": "send"
+        },
+        {
+          "function": "subghz_menu",
+          "transport": "oneshot"
+        },
+        {
+          "function": "subghz_rx",
+          "transport": "send"
+        },
+        {
+          "function": "subghz_tesla_replay",
+          "transport": "send"
+        }
+      ],
+      "sources": [
+        "JanOS_app.py:4723",
+        "JanOS_app.py:4829",
+        "JanOS_app.py:4882",
+        "JanOS_app.py:5143"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "",
+      "command": "subghz_tpms",
+      "confirm": false,
+      "groups": [
+        "Python workflows"
+      ],
+      "label": "Subghz Tpms",
+      "python_handlers": [
+        {
+          "function": "subghz_sensor_monitor",
+          "transport": "stream"
+        }
+      ],
+      "sources": [
+        "JanOS_app.py:4870"
+      ],
+      "stream": true
+    },
+    {
+      "arguments": "",
+      "command": "subghz_tx",
+      "confirm": false,
+      "groups": [
+        "Python workflows"
+      ],
+      "label": "Subghz Tx",
+      "python_handlers": [
+        {
+          "function": "subghz_signal_library",
+          "transport": "oneshot"
+        },
+        {
+          "function": "subghz_tesla_replay",
+          "transport": "send"
+        },
+        {
+          "function": "subghz_tx",
+          "transport": "prompt"
+        }
+      ],
+      "sources": [
+        "JanOS_app.py:4739",
+        "JanOS_app.py:4839",
+        "JanOS_app.py:5042",
+        "JanOS_app.py:5044"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "",
+      "command": "subghz_weather",
+      "confirm": false,
+      "groups": [
+        "Python workflows"
+      ],
+      "label": "Subghz Weather",
+      "python_handlers": [
+        {
+          "function": "subghz_sensor_monitor",
+          "transport": "stream"
+        }
+      ],
+      "sources": [
+        "JanOS_app.py:4868"
+      ],
+      "stream": true
+    },
+    {
+      "arguments": "[arguments]",
+      "command": "test_radio_channel",
+      "confirm": false,
+      "groups": [
+        "Hardware and diagnostics"
+      ],
+      "label": "Radio channel diagnostic",
+      "python_handlers": [],
+      "sources": [
+        "projectzero_commands.py"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "[arguments]",
+      "command": "test_radio_channels",
+      "confirm": false,
+      "groups": [
+        "Hardware and diagnostics"
+      ],
+      "label": "Radio channel suite",
+      "python_handlers": [],
+      "sources": [
+        "projectzero_commands.py"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "",
+      "command": "uart_baud",
+      "confirm": false,
+      "groups": [
+        "SD / binary transfer"
+      ],
+      "label": "Uart Baud",
+      "python_handlers": [
+        {
+          "function": "switch_uart_baud",
+          "transport": "send"
+        }
+      ],
+      "sources": [
+        "JanOS_app.py:5386",
+        "projectzero_commands.py:FILE_COMMANDS"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "",
+      "command": "uart_baud_confirm",
+      "confirm": false,
+      "groups": [
+        "SD / binary transfer"
+      ],
+      "label": "Uart Baud Confirm",
+      "python_handlers": [
+        {
+          "function": "switch_uart_baud",
+          "transport": "send"
+        }
+      ],
+      "sources": [
+        "JanOS_app.py:5393",
+        "projectzero_commands.py:FILE_COMMANDS"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "",
+      "command": "uart_baud_status",
+      "confirm": false,
+      "groups": [
+        "SD / binary transfer"
+      ],
+      "label": "Uart Baud Status",
+      "python_handlers": [
+        {
+          "function": "projectzero_file_menu",
+          "transport": "oneshot"
+        }
+      ],
+      "sources": [
+        "JanOS_app.py:5444",
+        "projectzero_commands.py:FILE_COMMANDS"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "",
+      "command": "unselect_networks",
+      "confirm": false,
+      "groups": [
+        "Python workflows"
+      ],
+      "label": "Unselect Networks",
+      "python_handlers": [
+        {
+          "function": "clear_network_selection",
+          "transport": "send"
+        }
+      ],
+      "sources": [
+        "JanOS_app.py:1621"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "",
+      "command": "unselect_stations",
+      "confirm": false,
+      "groups": [
+        "Wi-Fi tools"
+      ],
+      "label": "Clear station selection",
+      "python_handlers": [],
+      "sources": [
+        "projectzero_commands.py"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "[arguments]",
+      "command": "upload_state",
+      "confirm": false,
+      "groups": [
+        "Wardrive services"
+      ],
+      "label": "Wardrive upload state",
+      "python_handlers": [],
+      "sources": [
+        "projectzero_commands.py"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "",
+      "command": "vendor",
+      "confirm": false,
+      "groups": [
+        "Python workflows"
+      ],
+      "label": "Vendor",
+      "python_handlers": [
+        {
+          "function": "system_vendor_setting",
+          "transport": "prompt"
+        }
+      ],
+      "sources": [
+        "JanOS_app.py:4675"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "",
+      "command": "version",
+      "confirm": false,
+      "groups": [
+        "Python workflows"
+      ],
+      "label": "Version",
+      "python_handlers": [
+        {
+          "function": "probe_projectzero_capabilities",
+          "transport": "send"
+        },
+        {
+          "function": "system_menu",
+          "transport": "oneshot"
+        }
+      ],
+      "sources": [
+        "JanOS_app.py:5160",
+        "JanOS_app.py:5503"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "",
+      "command": "wardrive_blacklist",
+      "confirm": false,
+      "groups": [
+        "Python workflows"
+      ],
+      "label": "Wardrive Blacklist",
+      "python_handlers": [
+        {
+          "function": "wardrive_blacklist_menu",
+          "transport": "oneshot"
+        },
+        {
+          "function": "wardrive_blacklist_menu",
+          "transport": "prompt"
+        }
+      ],
+      "sources": [
+        "JanOS_app.py:3889",
+        "JanOS_app.py:3891",
+        "JanOS_app.py:3893",
+        "JanOS_app.py:3895"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "[dry-run/options]",
+      "command": "wardrive_cleanup",
+      "confirm": true,
+      "groups": [
+        "Wardrive services"
+      ],
+      "label": "Wardrive cleanup",
+      "python_handlers": [],
+      "sources": [
+        "projectzero_commands.py"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "[arguments]",
+      "command": "wardrive_files",
+      "confirm": false,
+      "groups": [
+        "Wardrive services"
+      ],
+      "label": "Wardrive file statistics",
+      "python_handlers": [],
+      "sources": [
+        "projectzero_commands.py"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "<file> [options]",
+      "command": "wardrive_fix",
+      "confirm": false,
+      "groups": [
+        "Wardrive services"
+      ],
+      "label": "Repair Wardrive log",
+      "python_handlers": [],
+      "sources": [
+        "projectzero_commands.py"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "<file> [options]",
+      "command": "wardrive_fix_kml",
+      "confirm": false,
+      "groups": [
+        "Wardrive services"
+      ],
+      "label": "Repair Wardrive KML",
+      "python_handlers": [],
+      "sources": [
+        "projectzero_commands.py"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "status|set <key>|clear",
+      "command": "wdgwars_key",
+      "confirm": false,
+      "groups": [
+        "Wardrive services"
+      ],
+      "label": "WDGWars API key",
+      "python_handlers": [],
+      "sources": [
+        "projectzero_commands.py"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "[all|file]",
+      "command": "wdgwars_upload",
+      "confirm": false,
+      "groups": [
+        "Wardrive services"
+      ],
+      "label": "Upload Wardrive to WDGWars",
+      "python_handlers": [],
+      "sources": [
+        "projectzero_commands.py"
+      ],
+      "stream": true
+    },
+    {
+      "arguments": "capabilities|scan|status|list|inspect ...",
+      "command": "wifi_analyzer",
+      "confirm": false,
+      "groups": [
+        "Wi-Fi tools"
+      ],
+      "label": "WFA/1 Wi-Fi analyzer",
+      "python_handlers": [],
+      "sources": [
+        "projectzero_commands.py"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "<SSID> <password> [ota] [IP netmask gateway [DNS1] [DNS2]]",
+      "command": "wifi_connect",
+      "confirm": false,
+      "groups": [
+        "Wi-Fi tools"
+      ],
+      "label": "Advanced Wi-Fi STA connection",
+      "python_handlers": [],
+      "sources": [
+        "projectzero_commands.py"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "[show|set <CC>]",
+      "command": "wifi_country",
+      "confirm": false,
+      "groups": [
+        "Wi-Fi tools"
+      ],
+      "label": "Wi-Fi country/regulatory domain",
+      "python_handlers": [],
+      "sources": [
+        "projectzero_commands.py"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "",
+      "command": "wifi_disconnect",
+      "confirm": false,
+      "groups": [
+        "Wi-Fi tools"
+      ],
+      "label": "Disconnect Wi-Fi STA",
+      "python_handlers": [],
+      "sources": [
+        "projectzero_commands.py"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "status|set <name> <token>|clear",
+      "command": "wigle_key",
+      "confirm": false,
+      "groups": [
+        "Wardrive services"
+      ],
+      "label": "WiGLE API key",
+      "python_handlers": [],
+      "sources": [
+        "projectzero_commands.py"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "[all|file]",
+      "command": "wigle_upload",
+      "confirm": false,
+      "groups": [
+        "Wardrive services"
+      ],
+      "label": "Upload Wardrive to WiGLE",
+      "python_handlers": [],
+      "sources": [
+        "projectzero_commands.py"
+      ],
+      "stream": true
+    },
+    {
+      "arguments": "status|set <key>|clear",
+      "command": "wpasec_key",
+      "confirm": false,
+      "groups": [
+        "Handshake and cracking"
+      ],
+      "label": "WPA-SEC API key",
+      "python_handlers": [],
+      "sources": [
+        "projectzero_commands.py"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "[file|all]",
+      "command": "wpasec_upload",
+      "confirm": false,
+      "groups": [
+        "Handshake and cracking"
+      ],
+      "label": "Upload handshake to WPA-SEC",
+      "python_handlers": [],
+      "sources": [
+        "projectzero_commands.py"
+      ],
+      "stream": true
+    },
+    {
+      "arguments": "capabilities|scan|list|select|start|status|stop ...",
+      "command": "wps",
+      "confirm": false,
+      "groups": [
+        "WPS and Bluetooth"
+      ],
+      "label": "WPS scanner/workflow",
+      "python_handlers": [],
+      "sources": [
+        "projectzero_commands.py"
+      ],
+      "stream": true
+    },
+    {
+      "arguments": "",
+      "command": "zig_recon_clear",
+      "confirm": true,
+      "groups": [
+        "Zigbee / 802.15.4"
+      ],
+      "label": "Clear recon results",
+      "python_handlers": [],
+      "sources": [
+        "projectzero_commands.py"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "",
+      "command": "zig_recon_list",
+      "confirm": false,
+      "groups": [
+        "Zigbee / 802.15.4"
+      ],
+      "label": "Discovered PAN list",
+      "python_handlers": [],
+      "sources": [
+        "projectzero_commands.py"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "[PAN/index]",
+      "command": "zig_recon_nodes",
+      "confirm": false,
+      "groups": [
+        "Zigbee / 802.15.4"
+      ],
+      "label": "Discovered node list",
+      "python_handlers": [],
+      "sources": [
+        "projectzero_commands.py"
+      ],
+      "stream": false
+    },
+    {
+      "arguments": "",
+      "command": "zig_recon_status",
+      "confirm": false,
+      "groups": [
+        "Zigbee / 802.15.4"
+      ],
+      "label": "Recon status",
+      "python_handlers": [],
+      "sources": [
+        "projectzero_commands.py"
+      ],
+      "stream": false
+    }
+  ],
+  "fingerprint": "sha256:511755b3eb5869612f023919c301a329a76dffec45c3099f0b4f33d1d4facfeb",
+  "manual_porting": [
+    {
+      "expression": "command",
+      "file": "JanOS_app.py",
+      "function": "run_simple_command",
+      "line": 1470,
+      "reason": "dynamic command expression requires a native handler review",
+      "transport": "send"
+    },
+    {
+      "expression": "command",
+      "file": "JanOS_app.py",
+      "function": "prompt_and_run_command",
+      "line": 1496,
+      "reason": "dynamic command expression requires a native handler review",
+      "transport": "oneshot"
+    },
+    {
+      "expression": "stop_command",
+      "file": "JanOS_app.py",
+      "function": "monitor_command",
+      "line": 1539,
+      "reason": "dynamic command expression requires a native handler review",
+      "transport": "send"
+    },
+    {
+      "expression": "command",
+      "file": "JanOS_app.py",
+      "function": "monitor_command",
+      "line": 1542,
+      "reason": "dynamic command expression requires a native handler review",
+      "transport": "send"
+    },
+    {
+      "expression": "stop_command",
+      "file": "JanOS_app.py",
+      "function": "monitor_command",
+      "line": 1564,
+      "reason": "dynamic command expression requires a native handler review",
+      "transport": "send"
+    },
+    {
+      "expression": "command",
+      "file": "JanOS_app.py",
+      "function": "show_sniffer_results",
+      "line": 1724,
+      "reason": "dynamic command expression requires a native handler review",
+      "transport": "send"
+    },
+    {
+      "expression": "command",
+      "file": "JanOS_app.py",
+      "function": "show_sniffer_probes",
+      "line": 1793,
+      "reason": "dynamic command expression requires a native handler review",
+      "transport": "send"
+    },
+    {
+      "expression": "command",
+      "file": "JanOS_app.py",
+      "function": "start_deauth_detector",
+      "line": 1844,
+      "reason": "dynamic command expression requires a native handler review",
+      "transport": "stream"
+    },
+    {
+      "expression": "command",
+      "file": "JanOS_app.py",
+      "function": "_connect_wifi_sta",
+      "line": 3347,
+      "reason": "dynamic command expression requires a native handler review",
+      "transport": "send"
+    },
+    {
+      "expression": "command",
+      "file": "JanOS_app.py",
+      "function": "run_gps_module_command",
+      "line": 3711,
+      "reason": "dynamic command expression requires a native handler review",
+      "transport": "send"
+    },
+    {
+      "expression": "command",
+      "file": "JanOS_app.py",
+      "function": "start_wardrive_promisc",
+      "line": 3869,
+      "reason": "dynamic command expression requires a native handler review",
+      "transport": "stream"
+    },
+    {
+      "expression": "command",
+      "file": "JanOS_app.py",
+      "function": "wardrive_config_menu",
+      "line": 3927,
+      "reason": "dynamic command expression requires a native handler review",
+      "transport": "oneshot"
+    },
+    {
+      "expression": "command",
+      "file": "JanOS_app.py",
+      "function": "set_external_gps_position",
+      "line": 3986,
+      "reason": "dynamic command expression requires a native handler review",
+      "transport": "oneshot"
+    },
+    {
+      "expression": "command",
+      "file": "JanOS_app.py",
+      "function": "list_dir_entries",
+      "line": 4078,
+      "reason": "dynamic command expression requires a native handler review",
+      "transport": "send"
+    },
+    {
+      "expression": "command",
+      "file": "JanOS_app.py",
+      "function": "system_raw_command",
+      "line": 4669,
+      "reason": "dynamic command expression requires a native handler review",
+      "transport": "stream"
+    },
+    {
+      "expression": "command",
+      "file": "JanOS_app.py",
+      "function": "system_raw_command",
+      "line": 4671,
+      "reason": "dynamic command expression requires a native handler review",
+      "transport": "oneshot"
+    },
+    {
+      "expression": "command",
+      "file": "JanOS_app.py",
+      "function": "subghz_list_signals",
+      "line": 4952,
+      "reason": "dynamic command expression requires a native handler review",
+      "transport": "send"
+    },
+    {
+      "expression": "command",
+      "file": "JanOS_app.py",
+      "function": "execute_command_spec",
+      "line": 5216,
+      "reason": "dynamic command expression requires a native handler review",
+      "transport": "stream"
+    },
+    {
+      "expression": "command",
+      "file": "JanOS_app.py",
+      "function": "execute_command_spec",
+      "line": 5219,
+      "reason": "dynamic command expression requires a native handler review",
+      "transport": "oneshot"
+    },
+    {
+      "expression": "command",
+      "file": "JanOS_app.py",
+      "function": "_receive_ft_file",
+      "line": 5254,
+      "reason": "dynamic command expression requires a native handler review",
+      "transport": "send"
+    },
+    {
+      "expression": "command",
+      "file": "JanOS_app.py",
+      "function": "fs_upload",
+      "line": 5336,
+      "reason": "dynamic command expression requires a native handler review",
+      "transport": "send"
+    }
+  ],
+  "schema_version": 1,
+  "source_fingerprints": {
+    "JanOS_app.py": "sha256:1898e2267715702379915cc5f5d03c700e7ca360f72aed6f2c664535370f19f8",
+    "projectzero_commands.py": "sha256:17ceaa1f023c88a3ad4afbe2cd9e113d4abdbe41d76dd3ed541e47fdc1b31d35"
+  }
+}
