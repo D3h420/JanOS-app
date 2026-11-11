@@ -33,6 +33,7 @@ COMMAND_GROUPS: Dict[str, Tuple[CommandSpec, ...]] = {
         CommandSpec("start_nmap", "Network host/port scan", "[target/options]", stream=True),
         CommandSpec("list_hosts_vendor", "Connected hosts with vendor"),
         CommandSpec("wifi_disconnect", "Disconnect Wi-Fi STA"),
+        CommandSpec("wifi_connect", "Advanced Wi-Fi STA connection", "<SSID> <password> [ota] [IP netmask gateway [DNS1] [DNS2]]"),
     ),
     "WPS and Bluetooth": (
         CommandSpec("wps", "WPS scanner/workflow", "capabilities|scan|list|select|start|status|stop ...", stream=True),
@@ -41,6 +42,7 @@ COMMAND_GROUPS: Dict[str, Tuple[CommandSpec, ...]] = {
     ),
     "Portals and gateways": (
         CommandSpec("capture_gateway", "Capture Gateway", "start|status|clients|stats|stop [options]", stream=True),
+        CommandSpec("start_pcap", "PCAP capture", "radio|net|gateway", stream=True),
         CommandSpec("start_rogue_gitm", "Rogue GITM", "[options]", stream=True),
         CommandSpec("start_rogueap", "WPA2 Rogue AP", '"SSID" "password"', stream=True),
         CommandSpec("start_karma", "Karma attack from probe", "<probe-index>", stream=True),

@@ -42,6 +42,25 @@ An explicit device path is still available as an override:
 python3 JanOS_app.py /dev/cu.usbserial-230
 ```
 
+## projectZero full control
+
+Main-menu option `9` exposes the complete current projectZero/JanOS command
+surface. The controller probes `version` and `help` on the connected board,
+marks commands not reported by that firmware, and groups the available tools
+into Wi-Fi, WPS/Bluetooth, gateways, Zigbee/802.15.4, Wardrive services,
+handshake/cracking, OTA, hardware diagnostics, and SD/file-transfer menus.
+
+The SD manager implements the binary-safe `FS/1` and `FTB/1` protocols for
+directory listing, CRC-checked downloads and transactional uploads. It also
+supports JanOS UART baud negotiation up to 4 Mbaud where the physical link is
+stable.
+
+Monster RF and classic MonsterC5 are different firmware targets. Official
+projectZero/JanOS is the classic target; Monster RF normally ships with
+JanosRF. The existing SubGHz menu is retained for JanosRF/custom builds, while
+the projectZero menu discovers the commands actually exposed by the connected
+firmware.
+
 ## 💾 SD Card Files
 
 All paths below are on the JanOS device SD card (under `/sdcard`):

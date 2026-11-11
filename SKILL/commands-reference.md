@@ -1,681 +1,1228 @@
-# JanOS SubGHz UART Command Reference
+# JanOS UART Command Reference
 
-Complete reference of every `subghz_*` command supported by the `janos_subghz` component running on ESP32-C5 with a CC1101 radio, plus related JanOS system commands used by the SubGHz UI.
+Complete reference of all commands supported by JanOS firmware on ESP32C5.
+Commands are sent over UART as plain text terminated with `\r\n`. Responses are line-based text.
 
-Commands are sent over UART as plain text terminated with `\r\n`. Responses are line-based text and **all GUI-relevant SubGHz events are tagged with `[SUBGHZ_*]`, `[KAT_RX]`, `[KL_DEC]`, `[KL_GROUND]`, `[KAT_DBG]`** so a UI can `strstr()` them out of the rest of the firmware log.
-
-**Indexing convention**: All key indices are **1-based**.
-
----
-
-## Storage model (mem vs sd)
-
-Signals live in two independent stores. **Every command that touches an
-individual signal — `subghz_list`, `subghz_info`, `subghz_tx` — takes an
-explicit `<mem|sd>` source argument.**
-
-| Tier  | Backed by                          | Filled by                                              | `idx=` semantics                                                       | Lifetime                  |
-|-------|------------------------------------|--------------------------------------------------------|------------------------------------------------------------------------|---------------------------|
-| `mem` | Dynamic PSRAM cache, no fixed cap. | Auto-save inside `subghz_rx` and `subghz_freq_analyzer hunt`. | Monotonic `capture_seq` (1-based) — same number shown in `[SUBGHZ_RX]`. | Wiped by reboot or `subghz_clear`. |
-| `sd`  | `/sdcard/lab/subghz/*.sub` text files. | Deliberate `subghz_save <mem_idx>` / `subghz_save all` only. | 1..N positional within the current directory enumeration (sorted by leading `NNNNN_` prefix then alphabetically). | Persistent across reboot. |
-
-Rules:
-
-- `subghz_rx` and `subghz_freq_analyzer hunt` write only to `mem`. There is no
-  automatic SD persistence and no `[SUBGHZ_TRACE]` event.
-- `subghz_save <mem_idx>|all` is the only way to copy a `mem` signal into the
-  SD library. The original `mem` entry is left untouched (you can re-save or
-  delete the mem cache later).
-- `subghz_delete <sd_idx>` removes a file from the SD library.
-- `subghz_rename <sd_idx> <new_name>` renames both the filename and the
-  `Name:` field inside the `.sub` file.
-- `subghz_clear` empties the mem cache; the SD library is intentionally left
-  alone (delete individual files with `subghz_delete`).
-- `sd_idx` is positional and changes after every `subghz_save` /
-  `subghz_delete` / `subghz_rename`. UIs should re-issue `subghz_list sd`
-  right after each mutation.
+**Indexing convention**: All indices in JanOS are **1-based** (not 0-based).
 
 ---
 
-## Boot output (informational only — not GUI events)
+## WiFi Scanning
 
-When the firmware boots and initializes the SubGHz subsystem you'll see lines like:
-
+### `scan_networks`
+- **Syntax**: `scan_networks`
+- **Description**: Starts background WiFi scan on all channels.
+- **Output**: `"Background scan started (min: X ms, max: Y ms per channel)"`
+- **Completion marker**: Wait for `"Scan results printed"` in the output of `show_scan_results` (auto-triggered after scan completes).
+- **Response format** (each network is a CSV line):
 ```
-[BOARD] name=TAB5-CC1101-R2-0042
-[subghz] CC1101 chip: PARTNUM=0x00 VERSION=0x14 (expect 0x00/0x14)
-[subghz] Capture buffers: 8192 entries (32 KB each) in PSRAM
-[subghz] Regs: MDMCFG2=0x30 PKTCTRL0=0x32 AGCCTRL2=0x07 IOCFG0=0x0D MARC=0x0D
-[KAT] Keystore loaded: 84 manufacturer keys
-[subghz] Timer self-test: 1000us delay measured as 1002 us
-[subghz] CC1101 initialized on SPI2 (CS=3 GDO0=4) @ 433.92 MHz
+"1","AX3","","C4:2B:44:12:29:20","112","WPA2/WPA3 Mixed","-59","5GHz"
+"2","BRW","","64:7C:34:41:8F:EC","7","WPA/WPA2 Mixed","-72","2.4GHz"
+Scan results printed.
 ```
+- **CSV fields**: `"index","SSID","(empty)","BSSID","channel","security","RSSI","band"`
+- **Notes**: Wardrive must be stopped first. Results are auto-printed; wait for `"Scan results printed"`.
 
-These lines are diagnostic. The UI may surface them in a verbose log drawer but should not parse them as SubGHz state. `[BOARD] name=<unset>` means BLK5 / KEY1 does not contain a valid board label.
+### `show_scan_results`
+- **Syntax**: `show_scan_results`
+- **Description**: Prints results from last `scan_networks`. Same CSV format as above.
+- **Completion marker**: `"Scan results printed"`
+
+### `inspect_network`
+- **Syntax**: `inspect_network <index>`
+- **Description**: Passively captures beacons from the AP at the given 1-based index (from last `scan_networks`) on its primary channel for ~1.5 s. Parses the beacon to expose data not available in `scan_networks`:
+  - **MFP (802.11w / Management Frame Protection)** — read from RSN IE (tag 48) RSN Capabilities field: `mfp_capable` (bit 7 = MFPC) and `mfp_required` (bit 6 = MFPR).
+  - **AP uptime** — TSF timestamp from beacon body (microseconds since AP boot).
+- **Output** (single line, prefixed with `[INSPECT]`):
+```
+[INSPECT] index=1 bssid=C4:2B:44:12:29:20 channel=112 ssid="AX3" mfp_capable=1 mfp_required=0 uptime_us=1234567890 uptime_str=14d 06:56:07 beacon_interval_tu=100 beacons_seen=3
+```
+- **No-RSN AP** (open / WPA-only — MFP not applicable):
+```
+[INSPECT] index=2 bssid=... mfp_capable=- mfp_required=- uptime_us=... uptime_str=... beacon_interval_tu=100 beacons_seen=2 note=no_rsn_ie
+```
+- **Timeout** (no beacon received within ~1.5 s):
+```
+[INSPECT] index=1 bssid=... channel=... ssid="..." beacons_seen=0 error=timeout
+```
+- **Completion marker**: any line containing `"[INSPECT]"`.
+- **Notes**: Requires prior `scan_networks`. Refuses to run while sniffer / wardrive / beacon spam is active. Switches the radio to the target channel during the capture; previous promiscuous state is restored afterward.
+
+### `select_networks`
+- **Syntax**: `select_networks <index1> [index2] ...`
+- **Description**: Selects networks by 1-based index for targeted attacks/operations.
+- **Example**: `select_networks 1 3 5`
+- **Output**: Selection confirmation per network.
+- **Notes**: Requires prior `scan_networks`.
+
+### `unselect_networks`
+- **Syntax**: `unselect_networks`
+- **Description**: Stops all operations and clears network selection. Keeps scan results intact.
 
 ---
 
-## Status & Frequency
+## Sniffing & Network Observer
 
-### `subghz_status`
-- **Syntax**: `subghz_status`
-- **Description**: One-shot status of the CC1101 driver.
-- **Output** (single line):
-```
-[SUBGHZ_STATUS] mode=<Idle|Receive|Transmit|Jam|Analyzer> freq=<MHz> keys=<N> rssi=<dBm>
-```
-- **Parse**: `sscanf(line, "[SUBGHZ_STATUS] mode=%15s freq=%f keys=%d rssi=%d", mode, &freq, &keys, &rssi);`
+### `start_sniffer`
+- **Syntax**: `start_sniffer`
+- **Description**: Starts client sniffer. If networks selected, sniffs only those; otherwise does full scan first.
+- **Continuous output**: `"Sniffer packet count: 60"`, `"Sniffer packet count: 80"`, ...
+- **Stop**: Send `stop`.
 
-### `subghz_freq`
-- **Syntax**: `subghz_freq` (read) or `subghz_freq <MHz>` (set)
-- **Description**: Reads or sets operating frequency for all SubGHz operations (RX, TX, Jam). Does **not** affect the Frequency Analyzer scan list (the analyzer iterates its own list).
-- **Examples**: `subghz_freq`, `subghz_freq 433.92`, `subghz_freq 868.35`, `subghz_freq 315.00`
+### `start_sniffer_noscan`
+- **Syntax**: `start_sniffer_noscan`
+- **Description**: Starts sniffer using existing scan results (no new scan).
+- **Notes**: Requires prior `scan_networks`.
+
+### `show_sniffer_results`
+- **Syntax**: `show_sniffer_results`
+- **Description**: Shows discovered APs and their associated clients, sorted by client count.
+- **Output format**:
+```
+AX3, CH40: 2
+ 6E:0B:45:01:15:9E
+ EA:7A:33:04:3C:50
+NETIASPOT-2.4GHz-Eh82, CH7: 1
+ BC:30:7E:BB:52:71
+```
+- **Empty result**: `"No APs with clients found."`
+- **Notes**: AP lines have no leading space; client MAC lines have leading space.
+
+### `show_sniffer_results_vendor`
+- **Syntax**: `show_sniffer_results_vendor`
+- **Description**: Same as `show_sniffer_results` but includes vendor names for MACs.
+
+### `clear_sniffer_results`
+- **Syntax**: `clear_sniffer_results`
+- **Description**: Clears all sniffer results (clients, probes, counters).
+
+### `show_probes`
+- **Syntax**: `show_probes`
+- **Description**: Shows captured probe requests with SSIDs and source MACs.
+- **Output format**:
+```
+Probe requests: 5
+Orange_Swiatlowod_BA62 (B0:98:2B:CC:BA:62)
+ZCS (0E:64:69:05:09:FC)
+TP-Link_F5F8 (64:57:25:BB:90:6A)
+```
+
+### `show_probes_vendor`
+- **Syntax**: `show_probes_vendor`
+- **Description**: Same as `show_probes` with vendor names.
+
+### `list_probes`
+- **Syntax**: `list_probes`
+- **Description**: Lists probe SSIDs with 1-based index (for use with `start_karma`).
+- **Output format**:
+```
+1 multimedia_siecBursztynowa1
+2 multimedia_siecBursztynowa2
+3 jakasInnaSieci
+```
+
+### `list_probes_vendor`
+- **Syntax**: `list_probes_vendor`
+- **Description**: Same as `list_probes` with vendor names.
+
+### `sniffer_debug`
+- **Syntax**: `sniffer_debug <0|1>`
+- **Description**: Enables (`1`) or disables (`0`) verbose sniffer debug logging.
+
+### `start_sniffer_dog`
+- **Syntax**: `start_sniffer_dog`
+- **Description**: Sniffer Dog mode -- captures AP-STA pairs and immediately sends targeted deauth.
+- **Continuous output**:
+```
+[SnifferDog #2] DEAUTH sent: AP=30:AA:E4:3C:3F:64 -> STA=A6:02:A5:BA:DA:AB (Ch=1, RSSI=-69)
+[SnifferDog #3] DEAUTH sent: AP=30:AA:E4:3C:3F:64 -> STA=A6:02:A5:BA:DA:AB (Ch=1, RSSI=-69)
+```
+- **Parse**: Extract `#N` for counter, `AP=`, `STA=`, `Ch=`, `RSSI=` fields.
+- **Stop**: Send `stop`.
+
+### `start_pcap`
+- **Syntax**: `start_pcap [radio|net|gateway]`
+- **Description**: Captures WiFi traffic to PCAP file on SD card. Default mode: `radio`.
+  - **Radio mode** (linktype 105): Promiscuous mode capturing all management/data/control frames on all channels.
+  - **Net mode** (linktype 1): Requires WiFi STA connection. Captures outbound packets and performs ARP spoofing MITM on detected hosts.
+  - **Gateway mode** (linktype 1): Compatibility/idempotency helper for Capture Gateway. Prefer `capture_gateway start`, which arms gateway PCAP automatically. `start_pcap gateway` requires an already-active Capture Gateway and is a no-op if that recorder is already armed.
+- **Example**: `start_pcap radio`, `start_pcap net`, or `start_pcap gateway`
 - **Output**:
 ```
-[SUBGHZ_FREQ] 433.92
+PCAP radio capture started -> /sdcard/lab/pcaps/sniff_1.pcap
 ```
-- **Valid range**: CC1101 supports 300–348, 387–464, 779–928 MHz. Out-of-range values are rejected with an error.
-
-### `subghz_set_freq_correction`
-- **Syntax**: `subghz_set_freq_correction <MHz>`
-- **Description**: Sets a signed crystal-trim correction (MHz) that is added to the requested carrier before the FREQ2/FREQ1/FREQ0 registers are programmed. Applies transparently to **every** radio operation: `subghz_freq`, `subghz_rx`, `subghz_tx`, `subghz_freq_analyzer` (coarse + fine + hunt), `subghz_scanner`, `subghz_weather`, `subghz_jam`, and the Tesla burst sequence. Persisted in NVS (namespace `"subghz"`, key `"freq_corr_cc"` as int32 in units of 0.01 MHz) and reloaded by `subghz_init()` after every reboot.
-- **Examples**: `subghz_set_freq_correction 0.05`, `subghz_set_freq_correction -0.12`, `subghz_set_freq_correction 0.00`
-- **Output**:
+- **On stop**:
 ```
-[SUBGHZ_FREQ_CORRECTION] +0.05
+PCAP saved: /sdcard/lab/pcaps/sniff_1.pcap (1530 frames, 2 drops)
+[PCAP_FINAL] file=... frames=... drops=... drop_alloc=... drop_queue=... drop_write=... rate_queue_drops=... throttle_events=... pause_events=... filter_drops=...
 ```
-- **Precision**: input is quantised to 2 decimal places (centi-MHz). `0.00` clears any previous correction.
-- **Valid range**: `-5.00..+5.00 MHz`. Out-of-range / NaN / Inf values are rejected with an error and NVS is left untouched.
-- **Live re-program**: when called with the radio idle, registers are immediately re-programmed using `current_freq + new_correction`. When called mid-RX/TX/FA, the next register write inside the running task picks up the new offset automatically.
-
-### `subghz_get_freq_correction`
-- **Syntax**: `subghz_get_freq_correction`
-- **Description**: Prints the current persisted CC1101 frequency correction (MHz). Same output format as the set command.
-- **Output**:
-```
-[SUBGHZ_FREQ_CORRECTION] +0.00
-```
+- **Error outputs**:
+  - `"Usage: start_pcap radio|net|gateway"` (invalid argument)
+  - `"Not connected to WiFi. Use 'wifi_connect' first."` (net mode, not connected)
+  - `"Capture Gateway is not active. Start it before 'start_pcap gateway'."`
+  - `"Failed to initialize SD card: <error>"` (SD init fail)
+  - `"Failed to create /sdcard/lab/pcaps directory"` (directory fail)
+  - `"Failed to open <filepath> for writing"` (file fail)
+- **Prerequisites**: SD card. For net mode: WiFi connected via `wifi_connect`. For gateway mode: active Capture Gateway (`capture_gateway start` or `start_rogue_gitm`).
+- **Stop**: Send `stop`.
+- **Notes**: Files are saved at `/sdcard/lab/pcaps/sniff_N.pcap` (N auto-increments) unless `--pcap-name` was set by Capture Gateway / Rogue GITM.
 
 ---
 
-## Receive
+## Attacks
 
-### `subghz_rx`
-- **Syntax**: `subghz_rx [raw] [rssi=-DBM|-DBM]`
-  - Arguments are positional but order-independent.
-  - `raw`: skip decoder dispatch and save raw edges only.
-  - `rssi=-DBM`: burst peak RSSI must be `>=` this value or the burst is dropped.
-  - Bare negative dBm tokens are also accepted, e.g. `-85` is equivalent to `rssi=-85`.
-  - Default RSSI gate: `-80 dBm`.
-  - Valid RSSI gate range: `-120..-40`. Invalid values, omitted values, and `0` fall back to `-80`.
-- **Description**: Starts CC1101 receiver on the current frequency. Auto-saves new unique signals to NVS. Streams RSSI at ~1 Hz for waterfall display (peak RSSI for the noise gate is still sampled every 10 ms internally). Without `raw`: tries protocol decoding first; on failure falls back to RAW. With `raw`: skips decoding and saves raw edge data only.
-- **RSSI noise gate**: cheap / clone / detuned CC1101 modules push their noise floor up to ~-90 dBm, which lets thermal noise cross the OOK slicer and produce 8–60-edge phantom bursts. The default `-80 dBm` gate filters those out without losing real signals (real fobs are typically `-45..-70 dBm`). On a clean module you'll never see `[SUBGHZ_RX_DROP]`; on a noisy one it fires every few seconds. Pass `rssi=-95` (or `rssi=-120` to disable) when you genuinely need weak / far-away signals.
+### `start_deauth`
+- **Syntax**: `start_deauth`
+- **Description**: Starts deauth attack on selected networks. Per-AP: WPA2 (and similar) get classic deauth; WPA3/OWE get Channel Switch Announcement (CSA beacon + CSA action); WPA2/WPA3 mixed gets both. Syntax is unchanged.
+- **Prerequisite**: `select_networks`
+- **Stop**: Send `stop`.
+- **Notes**: Extra lines such as `"CSA: <SSID> ch=X -> decoy Y"` or `"Deauth+CSA: ..."` may appear at start. Completion/stop markers are unchanged.
+
+### `start_evil_twin`
+- **Syntax**: `start_evil_twin`
+- **Description**: Starts Evil Twin attack. Creates AP cloning first selected network, deauths all selected.
+- **Prerequisite**: `select_networks` (first index = clone target), optionally `select_html`.
+- **Output sequence**:
+```
+Starting captive portal for Evil Twin attack on: AX3_2.4
+Captive portal started successfully
+Attacking 2 network(s):
+Target BSSID[0]: AX3_2.4, BSSID: C4:2B:44:12:29:1C, Channel: 1
+```
+- **Success markers** (monitor continuously):
+  - Client connect: `"AP: Client connected - MAC: XX:XX:XX:XX:XX:XX"`
+  - Password received: `"Password received: <password>"`
+  - Verified: `"Wi-Fi: connected to SSID='<SSID>' with password='<password>'"` followed by `"Password verified!"`
+  - Shutdown: `"Evil Twin portal shut down successfully!"`
+- **Stop**: Send `stop`.
+
+### `sae_overflow`
+- **Syntax**: `sae_overflow`
+- **Description**: SAE (WPA3) client overflow attack on selected network.
+- **Prerequisite**: `select_networks` (exactly one network).
+- **Stop**: Send `stop`.
+
+### `start_handshake`
+- **Syntax**: `start_handshake`
+- **Description**: Captures WPA handshakes. With selection = targeted; without = scans every 5 min and attacks all.
+- **Success markers** (monitor continuously):
+```
+HANDSHAKE IS COMPLETE AND VALID
+PCAP saved: /sdcard/lab/handshakes/AX3_2.4_12291C_79868.pcap (1186 bytes)
+Complete 4-way handshake saved for SSID: AX3_2.4 (MAC: 12291C, message_pair: 2)
+Handshake #1 captured!
+```
+- **Key lines to parse**:
+  - `strstr("HANDSHAKE IS COMPLETE AND VALID")` -- handshake validated
+  - `strstr("PCAP saved:")` -- file saved, extract path after `/sdcard/`
+  - `strstr("handshake saved for SSID:")` -- extract SSID after `"SSID: "`
+- **Stop**: Send `stop`.
+
+### `save_handshake`
+- **Syntax**: `save_handshake`
+- **Description**: Manually saves captured handshake to SD (only if complete 4-way available).
+
+### `start_blackout`
+- **Syntax**: `start_blackout`
+- **Description**: Blackout attack -- scans all networks every 3 min, deauths everything.
+- **Stop**: Send `stop`.
+
+### `start_beacon_spam`
+- **Syntax**: `start_beacon_spam "SSID1" "SSID2" ...`
+- **Description**: Broadcasts fake beacon frames with specified SSIDs. Sets WiFi to APSTA mode and iterates through 2.4GHz channels (1-11), sending beacons for each SSID per channel. Max 32 SSIDs, each 1-32 characters.
+- **Example**: `start_beacon_spam "Free WiFi" "Starbucks" "Airport"`
+- **Output**:
+```
+Starting beacon spam with 3 SSIDs:
+  1: Free WiFi
+  2: Starbucks
+  3: Airport
+WiFi initialized for beacon spam...
+Beacon spam started. Use 'stop' to end.
+```
+- **Error outputs**:
+  - `"Usage: start_beacon_spam \"SSID1\" \"SSID2\" ..."` (no arguments)
+  - `"Beacon spam already running. Use 'stop' first."` (already active)
+  - `"Warning: SSID N invalid length (M), skipping"` (SSID too long/empty)
+  - `"No valid SSIDs provided"` (all SSIDs invalid)
+- **Stop**: Send `stop`.
+
+### `start_beacon_spam_ssids`
+- **Syntax**: `start_beacon_spam_ssids`
+- **Description**: Same as `start_beacon_spam` but loads SSIDs from `/sdcard/lab/ssids.txt` (one SSID per line). Max 32 SSIDs loaded.
+- **Prerequisite**: SD card with `/sdcard/lab/ssids.txt` containing SSIDs (one per line). Manage the file with `add_ssid`, `remove_ssid`, `list_ssids`.
+- **Output**: Same as `start_beacon_spam` after loading SSIDs from file.
+- **Error outputs**:
+  - `"Beacon spam already running. Use 'stop' first."` (already active)
+  - `"Failed to initialize SD card: <error>"` (SD init fail)
+  - `"ssids.txt not found on SD card."` (file missing)
+  - `"ssids.txt is empty - no SSIDs to broadcast"` (file empty)
+- **Stop**: Send `stop`.
+
+### `start_karma`
+- **Syntax**: `start_karma <index>`
+- **Description**: Karma attack using SSID from probe list at given 1-based index.
+- **Prerequisite**: `list_probes` to get indices, `select_html` for portal page.
+- **Output**:
+```
+Captive portal started successfully!
+AP Name: multimedia_siecBursztynowa1
+```
+- **Monitor for**:
+  - `"AP: Client connected - MAC: <MAC>"`
+  - `"Password: <password>"`
+  - `"Portal data saved to portals.txt"`
+- **Stop**: Send `stop`.
+
+### `start_rogueap`
+- **Syntax**: `start_rogueap <SSID> <password>`
+- **Description**: WPA2 Rogue AP with captive portal. Deauths selected networks if any.
+- **Args**: SSID (1-32 chars), password (8-63 chars).
+- **Prerequisite**: `select_html` for portal page.
+- **Output**:
+```
+Rogue AP started successfully!
+AP Name: duap (WPA2 protected)
+Password: 12345678
+Custom HTML loaded (4841 bytes)
+Connect to 'duap' WiFi network to access the captive portal
+```
+- **Monitor for**:
+  - `"AP: Client connected - MAC: <MAC>"`
+  - `"Password: <password>"`
+  - `"Portal data saved to portals.txt"`
+  - `"AP: Client disconnected - MAC: <MAC>"`
+- **Stop**: Send `stop`.
+
+### `start_rogue_gitm`
+- **Syntax**: `start_rogue_gitm <SSID> <password> [--pcap-name <name>]`
+- **Description**: WPA2 SoftAP mirror plus Capture Gateway (GITM / NAPT + PCAP). Optional same-channel deauth on `select_networks` targets. No captive portal and no `select_html`. Deauth does not hop channels while GITM is active.
+- **Args**: SSID (1-32 chars), password (8-63 chars WPA2), optional `--pcap-name` (same rules as `capture_gateway`).
+- **Prerequisite**: `wifi_connect` with upstream IPv4. Optional `scan_networks` + `select_networks` (every selected AP must be on the STA channel and must not be the STA uplink BSSID).
+- **Output**: Same machine-readable `[CGW]` block as a successful `capture_gateway start` (`active=1`, `capture=active`, … `[CGW] END`), plus human lines such as `Rogue GITM started successfully!`.
+- **Monitor for**: `[CGW]` / `[CGW_CLIENT]` via `capture_gateway status`; deauth runs silently when enabled. Expect `dns=10.42.0.1`, `dns_proxy=on`. PCAP sources should be SoftAP `10.42.0.x` peers (no upstream ARP-spoof; upstream router should not appear as the client's DNS peer).
+- **Errors**:
+  - `"No upstream IPv4 connection. Use 'wifi_connect' first."`
+  - `"Rogue GITM refused: all selected deauth targets must share the upstream STA channel"`
+  - `"Rogue GITM refused: do not select the upstream STA BSSID for deauth"`
+- **Stop**: Send `stop` (finalizes PCAP, stops gateway and deauth). Do not use `capture_gateway stop` while gateway PCAP is armed.
+
+### `start_portal`
+- **Syntax**: `start_portal <SSID>`
+- **Description**: Open captive portal (no password required to join).
+- **Args**: SSID (1-32 chars).
+- **Prerequisite**: Optionally `select_html` for custom HTML.
+
+### `start_admin_portal`
+- **Syntax**: `start_admin_portal <password>`
+- **Description**: Brings up a WPA2 access point named `JanOS-Admin` (reusing the captive portal AP/HTTP/DNS technique) and serves a web-based file manager scoped to `/sdcard/lab`. Features: browse the directory tree, upload/download any file, rename/delete files and folders, and edit text files in-browser.
+- **Args**: WPA2 password (8-63 chars).
+- **Prerequisite**: SD card inserted.
+- **Access**: Join `JanOS-Admin` with the password, then open `http://172.0.0.1`.
+- **HTTP endpoints**: `GET /api/list|download|read`, `POST /api/upload|write|rename|delete` (all paths are relative to `/sdcard/lab`; `..` is rejected).
+- **Stop**: Send `stop`.
+- **Output**:
+```
+Captive portal started successfully!
+AP Name: MojaSiec
+Connect to 'MojaSiec' WiFi network to access the portal
+```
+- **Monitor for**:
+  - `"AP: Client connected - MAC: <MAC>"`
+  - `"Portal: Client count = N"`
+  - `"Password: <value>"` (form submission data)
+  - `"Portal data saved to portals.txt"`
+- **Stop**: Send `stop`.
+
+---
+
+## Station Selection
+
+### `select_stations`
+- **Syntax**: `select_stations <MAC1> [MAC2] ...`
+- **Description**: Selects specific client MACs for targeted deauth (instead of broadcast).
+- **Example**: `select_stations AA:BB:CC:DD:EE:FF 11:22:33:44:55:66`
+
+### `unselect_stations`
+- **Syntax**: `unselect_stations`
+- **Description**: Clears station selection, reverts to broadcast deauth.
+
+---
+
+## WiFi Connection (STA Mode)
+
+### `wifi_connect`
+- **Syntax**: `wifi_connect <SSID> [Password|--saved] [ota] [<IP> <Netmask> <GW> [DNS1] [DNS2]]`
+- **Description**: Connects to an AP as STA. If password is omitted, firmware tries open auth. Use `--saved` to explicitly load a saved password from `/sdcard/lab/eviltwin.txt` or `/sdcard/lab/portals.txt`. Optional static IP config.
+- **Examples**:
+  - WPA2 network: `wifi_connect AX4 ruletka2022`
+  - Open network: `wifi_connect BRW`
+  - Saved password: `wifi_connect AX4 --saved`
+  - With OTA: `wifi_connect AX4 ruletka2022 ota`
+  - Static IP: `wifi_connect AX4 ruletka2022 192.168.1.50 255.255.255.0 192.168.1.1`
+- **Output**:
+```
+Connecting to AP 'AX4'...
+Initializing WiFi...
+MAC Address: 30:ED:A0:E3:EC:18
+WiFi initialized OK
+Waiting for connection result...
+Wi-Fi: connected to SSID='AX4'
+SUCCESS: Connected to 'AX4'
+DHCP IP: 192.168.0.5, Netmask: 255.255.255.0, GW: 192.168.0.1
+```
+- **Success marker**: `strstr("SUCCESS")`
+- **Failure markers**: `strstr("FAILED")` or `strstr("TIMEOUT")`
+- **Notes**: When password is omitted, firmware sets `authmode = WIFI_AUTH_OPEN`. Saved credentials are used only when `--saved` is passed. The `ota` flag triggers OTA check after successful connection.
+
+### `wifi_disconnect`
+- **Syntax**: `wifi_disconnect`
+- **Description**: Disconnects from current AP.
+
+---
+
+## JanOS Capture Gateway (GITM)
+
+Authorized APSTA/NAPT gateway that turns JanOS into the IPv4 default route for clients joined to a dedicated SoftAP. Downstream SoftAP traffic is recorded to PCAP before NAPT (client addresses preserved). Product name: **JanOS GITM** (Gate-in-the-Middle). Complements `start_pcap net` (ARP-spoof on an existing LAN); does not decrypt HTTPS/QUIC/VPN.
+
+### `capture_gateway`
+- **Syntax**:
+  - `capture_gateway start <capture_ssid> [capture_password] [--pcap-name <name>]`
+  - `capture_gateway status`
+  - `capture_gateway stop`
+- **Description**: After `wifi_connect` (STA must have IPv4), starts SoftAP on fixed `10.42.0.1/24`, DHCP, DNS proxy (`dns=10.42.0.1` advertised; queries forwarded to upstream resolver), IPv4 NAPT through STA, adaptive aggregate 4096 kbps ceiling, and automatically arms gateway PCAP before reporting ready. Does not wait for a client. Omit password for open SoftAP; supply 8-63 bytes for WPA2-PSK. Channel follows the upstream AP (single radio).
+- **Args**:
+  - `capture_ssid`: 1-32 bytes (quote if it contains spaces)
+  - `capture_password`: optional; empty/open vs 8-63 WPA2-PSK
+  - `--pcap-name <name>`: optional basename under `/sdcard/lab/pcaps`; `.pcap` appended if omitted; safe chars `[A-Za-z0-9._-]`, max 95 incl. extension; never overwrites an existing file. Without it: `sniff_N.pcap`
+- **Examples**:
+  - `capture_gateway start JanOS-Capture`
+  - `capture_gateway start JanOS-Capture correct-horse-battery-staple`
+  - `capture_gateway start "JanOS Lab" "eight char password" --pcap-name office_20260812_143000`
+  - `capture_gateway status`
+- **Prerequisite**: `wifi_connect` with usable IPv4. Upstream subnet must not contain `10.42.0.1`.
+- **Completion marker (start/status)**: exact line `"[CGW] END"` (collect all `[CGW]` / `[CGW_CLIENT]` lines until then). Successful start also prints human `"Capture Gateway ready and recording..."` and a status block with `active=1` and `capture=active`.
+- **Active status example**:
+```
+[CGW] status active=1 upstream=1 napt=1 clients=2 channel=6
+[CGW] ssid=JanOS Lab security=open upstream_ssid=Office WiFi
+[CGW] ap_ip=10.42.0.1 sta_ip=192.168.1.27 dns=10.42.0.1 dns_proxy=on upstream_dns=192.168.1.1
+[CGW] capture=active file=/sdcard/lab/pcaps/iot-lab_20260812_143000.pcap packets=18742 frames=18742 drops=0 file_bytes=9238164
+[CGW] recorder drop_alloc=0 drop_queue=0 drop_write=0 queue_depth=3 queue_capacity=1024 queue_high_water=41
+[CGW] rate_limit_kbps=4096 rate_effective_kbps=2048 adaptive=on throttle_events=3 pause_events=0 rate_queue_depth=27 rate_queue_capacity=1024 rate_queue_drops=0 rate_queue_high_water=545
+[CGW] pcap_scope=softap_10_42 filter_drops=0
+[CGW] client_isolation=off
+[CGW_CLIENT] mac=02:11:22:33:44:55 ip=10.42.0.2
+[CGW_CLIENT] mac=02:AA:BB:CC:DD:EE ip=10.42.0.3
+[CGW] END
+```
+- **Idle status**:
+```
+[CGW] status active=0
+[CGW] END
+```
+- **Parse notes**:
+  - Match prefixes `[CGW] ` and `[CGW_CLIENT] ` only; ignore ESP-IDF/human log lines between them.
+  - On the `ssid=` line, extract `ssid` between `ssid=` and ` security=`, `security` between ` security=` and ` upstream_ssid=`, remainder is `upstream_ssid` (may contain spaces).
+  - Commit the snapshot only on `[CGW] END`. Use 64-bit for `file_bytes`. `frames` is a compatibility alias of `packets`.
+  - `drops>0` = degraded PCAP; `rate_queue_drops>0` = shaping degradation (separate from recorder drops). Passwords are never returned.
+- **Stop**:
+  - While gateway PCAP is armed: send universal `stop` (finalizes writer, emits `[PCAP_FINAL]`, then tears down gateway). Do **not** use `capture_gateway stop` in that state — it refuses with `"Gateway PCAP is active. Use 'stop'..."`.
+  - `capture_gateway stop` only when gateway is up but PCAP is not armed; prints `[CGW] stopped` / `[CGW] END` and keeps STA up.
+- **Error outputs** (representative):
+  - `"Usage: capture_gateway start <capture_ssid> [capture_password] [--pcap-name <name>] | status | stop"`
+  - `"No upstream IPv4 connection. Use 'wifi_connect' first."`
+  - `"Capture SSID must be 1-32 bytes; optional password must be 8-63 bytes"`
+  - `"Capture Gateway is already active"`
+  - `"PCAP name must fit in ... letters, digits, '.', '_' or '-'; paths are not allowed"`
+  - `"Capture Gateway: recorder failed to arm; gateway rolled back"`
+- **Recommended flow**: `wifi_connect ...` → `capture_gateway start ...` → (optional poll `capture_gateway status`) → clients may join anytime → `stop`.
+- **Related**: `start_rogue_gitm` starts the same GITM session with a mandatory WPA2 mirror SSID and optional same-channel deauth. Do not send `start_pcap gateway` after a successful `capture_gateway start`.
+
+---
+
+## ARP Operations
+
+### `list_hosts`
+- **Syntax**: `list_hosts`
+- **Description**: ARP scans local network and lists discovered hosts.
+- **Prerequisite**: `wifi_connect` (must be connected to a network).
+- **Output**:
+```
+Our IP: 192.168.3.39, Netmask: 255.255.255.0
+Scanning 254 hosts on network...
+Sent 254 ARP requests, waiting for responses...
+=== Discovered Hosts ===
+  192.168.3.61  ->  C4:2B:44:12:29:15
+  192.168.3.1  ->  60:AA:EF:45:71:45
+  192.168.3.9  ->  D6:FD:01:EC:14:18
+```
+- **Completion marker**: `strstr("Discovered Hosts")`
+- **Parse**: Lines containing `"->"` have format `  IP  ->  MAC`.
+
+### `list_hosts_vendor`
+- **Syntax**: `list_hosts_vendor`
+- **Description**: Same as `list_hosts` with vendor names appended.
+
+### `arp_ban`
+- **Syntax**: `arp_ban <MAC> [IP]`
+- **Description**: ARP poisons target device to disconnect it from network.
+- **Example**: `arp_ban C4:2B:44:12:29:15 192.168.3.61`
+- **Prerequisite**: `wifi_connect`.
+- **Stop**: Send `stop`.
+
+---
+
+## Network Scanning (NMAP)
+
+### `start_nmap`
+- **Syntax**: `start_nmap [quick|medium|heavy] [IP]`
+- **Description**: TCP port scanner. Discovers live hosts on the LAN (ARP + ICMP) then probes each host's ports with non-blocking TCP connect (500ms timeout per port). Can scan a single IP or the full subnet.
+- **Scan levels**:
+  - `quick` (default): 20 most common ports (FTP, SSH, HTTP, SMB, RDP, etc.)
+  - `medium`: 50 ports (adds LDAP, MQTT, Docker, Redis, etc.)
+  - `heavy`: 100 ports (adds TFTP, BGP, Modbus, MongoDB, Minecraft, etc.)
+- **Examples**:
+  - `start_nmap` -- quick scan of entire subnet
+  - `start_nmap heavy` -- 100-port scan of entire subnet
+  - `start_nmap medium 192.168.0.4` -- 50-port scan of single host
+- **Prerequisite**: `wifi_connect` (must be connected to a network).
+- **Stop**: Send `stop` (checked between each port probe).
+- **Output phases** (in order):
+
+**Phase 1 -- Host Discovery (only when not in single-host mode)**:
+```
+[MEM] start_nmap: Internal=125/251KB, DMA=109/235KB, PSRAM=7944/8192KB
+Scan level: heavy (100 ports)
+Our IP: 192.168.0.5, Netmask: 255.255.255.0
+Phase 1: ARP scan (254 hosts)...
+Sent 254 ARP requests, polling table for 4 seconds...
+ARP: found 3 hosts
+Phase 2: sent 251 ICMP pings, waiting for replies...
+ICMP: found 1 additional hosts
+Total: 4 hosts discovered (3 ARP + 1 ICMP)
+```
+
+**Phase 2 -- Port Scanning** (repeated per host):
+```
+Scanning 4 host(s), 100 ports each (heavy)...
+=== NMAP Scan Results ===
+Host: 192.168.0.1  (00:0B:00:00:AD:D0)
+  Scanning 192.168.0.1 ports 21-143 [1/100] ...
+     80/tcp  open  HTTP
+  Scanning 192.168.0.1 ports 443-8443 [11/100] ...
+  Scanning 192.168.0.1 ports 111-636 [21/100] ...
+  ...
+Host: 192.168.0.4  (00:C0:CA:B4:E6:3F)
+  Scanning 192.168.0.4 ports 21-143 [1/100] ...
+    135/tcp  open  MSRPC
+    139/tcp  open  NetBIOS
+  Scanning 192.168.0.4 ports 443-8443 [11/100] ...
+    445/tcp  open  SMB
+  ...
+Host: 192.168.0.128  (5C:D8:9E:8C:0C:B2)
+  Scanning 192.168.0.128 ports 21-143 [1/100] ...
+  ...
+  (no open ports)
+=========================
+Scanned 4 hosts, found 4 open ports
+```
+
+- **Key line formats for parsing**:
+
+| Line pattern | Meaning | Regex |
+|---|---|---|
+| `Scan level: <level> (<N> ports)` | Scan started, extract level and total port count | `Scan level: (\w+) \((\d+) ports\)` |
+| `Our IP: <IP>, Netmask: <mask>` | Local IP info | `Our IP: ([\d.]+), Netmask: ([\d.]+)` |
+| `Total: <N> hosts discovered` | Host discovery complete, extract host count | `Total: (\d+) hosts discovered` |
+| `Scanning <N> host(s), <M> ports each (<level>)...` | Port scan phase starting | `Scanning (\d+) host.*?(\d+) ports` |
+| `=== NMAP Scan Results ===` | Results header (marks start of per-host output) | literal match |
+| `Host: <IP>  (<MAC>)` | New host block starts | `Host: ([\d.]+)\s+\(([0-9A-Fa-f:]+)\)` |
+| `Host: <IP>  (MAC unknown)` | New host block, no MAC | `Host: ([\d.]+)\s+\(MAC unknown\)` |
+| `  Scanning <IP> ports <from>-<to> [<current>/<total>] ...` | Progress: current port batch | `Scanning ([\d.]+) ports (\d+)-(\d+) \[(\d+)/(\d+)\]` |
+| `  <port>/tcp  open  <service>` | Open port found | `(\d+)/tcp\s+open\s+(\S+)` |
+| `  (no open ports)` | Host has no open ports | literal match |
+| `  (scan stopped by user)` | User sent `stop` during scan | literal match |
+| `=========================` | Results footer | literal match |
+| `Scanned <N> hosts, found <M> open ports` | Final summary | `Scanned (\d+) hosts, found (\d+) open ports` |
+
+- **Completion marker**: `strstr("Scanned") && strstr("open ports")` -- this is the last line of output.
+- **Progress tracking**: The `Scanning <IP> ports <from>-<to> [<current>/<total>]` lines are emitted every 10 ports. Use `current` and `total` to calculate percentage. Combine with the host index from counting `Host:` lines vs total from the `Scanning N host(s)` line for overall progress.
+- **Single-host mode**: When an IP argument is given, host discovery is skipped entirely. Output starts with `Single-host mode, skipping host discovery.` followed directly by the port scan.
+
+---
+
+## Bluetooth
+
+### `scan_bt`
+- **Syntax**: `scan_bt` or `scan_bt <MAC>`
+- **Description**: Without MAC: one-time BLE scan (10s). With MAC: continuous tracking of one device.
+- **One-time output**:
+```
+=== BLE Scan Results ===
+Found 27 devices:
+
+  1. 09:2B:56:0E:1C:E0  RSSI: -82 dBm
+  2. 28:39:5E:3C:CD:46  RSSI: -97 dBm  Name: [TV] Samsung 7 Series (65)
+  3. F1:2E:71:9F:C8:68  RSSI: -95 dBm  Name: Forerunner 935
+
+Summary: 0 AirTags, 0 SmartTags, 27 total devices
+```
+- **Tracking output** (continuous):
+```
+F1:2E:71:9F:C8:68  RSSI: -93 dBm  Name: Forerunner 935
+F1:2E:71:9F:C8:68  RSSI: -90 dBm  Name: Forerunner 935
+```
+- **Stop**: Send `stop`.
+
+### `scan_airtag`
+- **Syntax**: `scan_airtag`
+- **Description**: Continuous AirTag/SmartTag scan, outputs counts periodically.
+- **Continuous output** (every ~30s):
+```
+2,3
+2,4
+```
+- **Format**: `<airtag_count>,<smarttag_count>`
+- **Stop**: Send `stop`.
+
+### `start_blespam`
+- **Syntax**: `start_blespam` or `start_blespam [20|50|100|200|500]`
+- **Description**: Mixes Momentum BLE Spam "Apple Action Modal" (Continuity Nearby Action) and "Samsung Watch Pair" (EasySetup Watch) on alternate advertising cycles. Apple keeps one random MAC for the session; Samsung randomizes MAC every packet. Optional delay is the advertising cycle in milliseconds (default 20). Switches the radio to BLE (tears down WiFi).
 - **Start output**:
 ```
-SubGHz receive mode active on 433.92 MHz (rssi gate=-80 dBm). Use 'subghz_stop' to end.
-SubGHz RAW capture mode active on 433.92 MHz (rssi gate=-85 dBm). Use 'subghz_stop' to end.
+BLE spam started (Apple Action Modal + Samsung Watch Pair). Use 'stop' to end.
 ```
-- **Continuous output** (any of these, in any order):
+- **Periodic output** (about once a second):
 ```
-[SUBGHZ_RSSI] -45
-[SUBGHZ_RX] idx=1 type=HOLTEK freq=433.92 bits=12 id=AABBCC te=270 proto=HOLTEK learn=- mf=- cnt=0
-[SUBGHZ_RX] idx=2 type=KeeLoq freq=433.85 bits=65 serial=0x04DEC1 btn=2 proto=KeeLoq learn=MAGIC_XOR_T1 mf=Leopard cnt=37188 te=355
-[SUBGHZ_RX_DUP] idx=1 type=HOLTEK freq=433.92 id=AABBCC proto=HOLTEK learn=- mf=- cnt=0
-[SUBGHZ_RX_DUP] idx=2 type=KeeLoq freq=433.85 serial=0x04DEC1 cnt=37189 learn=MAGIC_XOR_T1 mf=Leopard
-[SUBGHZ_RAW] idx=3 freq=433.92 edges=128
-[SUBGHZ_RX_DROP] reason=rssi peak=-87 th=-80 edges=23
-[KL_DEC] bits=65 te_auto=400 fix=0x2004DEC1 hop=0x3B760601 plain=0x22C19144 learn=4 mf=Leopard cnt=37188
-[KAT_RX] KeeLoq decoded+decrypted: serial=0x04DEC1 btn=2 cnt=37188 mf=Leopard learn=MAGIC_XOR_T1
-[KAT_DBG] decode failed: KL step=0 bits=0 hc=0 te_auto=0 | SL step=0 bits=0 hc=0 | FLOR step=0 bits=0 hc=0
+[BLESPAM] packets=42 apple=21 samsung=21 delay=20
 ```
-- **Events**:
-  - `[SUBGHZ_RSSI] <dBm>` — RSSI for waterfall (~1 Hz cadence).
-  - `[REPLAY_SEG] start=N len=N type=NAME deep=0\|1 static=0\|1 score=N` — one line per successful segmented decode (before `SubGHz: key saved` / `[SUBGHZ_RX]`).
-  - `[SUBGHZ_RX]` — new key saved. Two field layouts:
-    - **Static / fixed-code**: `idx=N type=NAME freq=MHz bits=N id=HEX te=N proto=NAME learn=NAME mf=NAME cnt=N`
-    - **Rolling-code**: `idx=N type=NAME freq=MHz bits=N serial=0xN btn=N proto=NAME learn=NAME mf=NAME cnt=N te=N`
-  - `[SUBGHZ_RX_DUP]` — duplicate of an existing saved key. References its `idx`.
-  - `[SUBGHZ_RAW]` — saved as raw edges (decoder failed or `raw` mode). Fields: `idx=N freq=MHz edges=N`.
-  - `[SUBGHZ_RX_DROP] reason=rssi peak=<dBm> th=<dBm> edges=N` — burst rejected by the noise gate. Fields: `peak` = max RSSI observed during the burst, `th` = current threshold, `edges` = how many edges were in the dropped burst. Safe for the UI to ignore; useful for a debug pane.
-  - `[KL_DEC]` — KeeLoq‑specific decoder dump emitted **before** the matching `[KAT_RX]` / `[SUBGHZ_RX]`.
-  - `[KAT_RX]` — rolling‑code dispatcher result line ("X decoded+decrypted" or "X captured").
-  - `[KAT_DBG]` — informational decode-failure trace (KeeLoq/StarLine/FloR-S all said NONE).
-- **Examples**:
-  - `subghz_rx` — listen, decode + auto-save, default `-80 dBm` gate.
-  - `subghz_rx raw` — raw capture only, default gate.
-  - `subghz_rx -65` — decode, stricter gate; only strong bursts pass.
-  - `subghz_rx rssi=-85` — decode, looser gate (good antenna, weak fobs).
-  - `subghz_rx raw rssi=-85` — raw capture with a looser gate.
-  - `subghz_rx raw -120` — raw + gate effectively disabled (capture absolutely everything).
-- **Stop**: `subghz_stop`.
+- **Error outputs**:
+  - `"Usage: start_blespam [20|50|100|200|500]"` (invalid or extra arguments)
+  - `"BLE spam already running. Use 'stop' first."`
+  - `"Cannot start BLE spam while BT scan is running. Use 'stop' first."`
+  - `"Cannot start BLE spam while wardrive is running. Use 'stop' first."`
+  - `"Cannot start BLE spam while anti-surveillance is running. Use 'stop' first."`
+  - `"BLE initialization failed"`
+- **Completion marker**: `"BLE spam started (Apple Action Modal + Samsung Watch Pair). Use 'stop' to end."`
+- **Stop**: Send `stop`. Host can also watch `"BLE spam stopped."`
 
 ---
 
-## Transmit
+## GPS
 
-### `subghz_tx`
-- **Syntax**: `subghz_tx <index> <mem|sd> [raw]` or `subghz_tx tesla`
-- **Description**: Replays a stored signal. The `<mem|sd>` source selects the store (mem cache or `/sdcard/lab/subghz/` library). With trailing `raw`: re-emits the captured raw edges verbatim, bypassing protocol re-encoding (useful for rolling codes when you want to replay the *exact* OTA frame instead of bumping the counter).
-- **Examples**: `subghz_tx 1 mem`, `subghz_tx 1 mem raw`, `subghz_tx 3 sd`, `subghz_tx tesla`
+### `gps_set`
+- **Syntax**: `gps_set <module>` or `gps_set` (no args = read current)
+- **Modules**: `m5` (m5stack GPS), `atgm` (ATGM336H), `external`/`ext`/`usb`/`tab`/`tab5`, `cap`/`external_cap`
+- **Example**: `gps_set tab5`
+- **Output** (terminated by `[GPSCFG] END`):
+```
+[GPSCFG] module=External
+[GPSCFG] baud=9600
+[GPSCFG] external=yes
+[GPSCFG] position_command=set_gps_position
+[GPSCFG] END
+```
+- **Completion marker**: `strstr("[GPSCFG] END")`.
+
+### `set_gps_position`
+- **Syntax**: `set_gps_position <lat> <lon> [alt] [acc]` or `set_gps_position` (no args = clear fix)
+- **Description**: Sets external GPS fix for wardrive.
+- **Output**: `"External GPS updated: Lat=... Lon=... Alt=... Acc=..."`
+
+### `set_gps_position_cap`
+- **Syntax**: `set_gps_position_cap <lat> <lon> [alt] [acc]`
+- **Description**: Same as `set_gps_position` for CAP GPS feed.
+
+### `start_gps_raw`
+- **Syntax**: `start_gps_raw [baud]`
+- **Description**: Prints raw NMEA sentences from GPS module.
+- **Stop**: Send `stop`.
+
+---
+
+## Wardrive
+
+### `start_wardrive`
+- **Syntax**: `start_wardrive`
+- **Description**: Standard wardrive with GPS logging to SD card.
+- **Output sequence**:
+  1. `"Waiting for GPS fix..."` (wait phase)
+  2. `"GPS fix obtained: Lat=... Lon=..."` (fix acquired)
+  3. CSV network lines: `BSSID,SSID,[security],timestamp,channel,RSSI,lat,lon,alt,acc,WIFI`
+  4. `"Logged N networks to /sdcard/lab/wardrives/wN.log"`
+- **GPS events**:
+  - `"GPS fix lost! Pausing wardrive..."` -- GPS signal lost
+  - `"GPS fix recovered: Lat=... Lon=.... Resuming wardrive."` -- GPS signal recovered
+- **Stop**: Send `stop`.
+
+### `start_wardrive_promisc`
+- **Syntax**: `start_wardrive_promisc`
+- **Description**: Promiscuous wardrive with D-UCB channel selection. Logs Wi-Fi APs **and** BLE devices to a WigleWifi-1.6 CSV at `/sdcard/lab/wardrives/<base>.log`. `<base>` is chosen after the GPS fix: UTC `YYYYMMDD_HHMMSS` (from `$GxRMC`, same clock as `FirstSeen`; chronologically sortable), or the legacy `wN` counter if no GPS time; a `_2/_3…` suffix avoids overwriting. Behaviour is controlled by the wardrive config block (see `get_wardrive_config` and the `set_wardrive_*` commands). Reads the config at start.
+- **Startup line** (after GPS fix): echoes the active config, e.g.
+```
+Wardrive config: bands=wifi24,wifi5,ble channels=popular wifi_delta=5 ble_delta=15 cooldown=0s memcap=40000
+Promiscuous wardrive started. Bands: wifi24,wifi5,ble, WiFi channels: 12
+```
+- **Periodic status**:
+```
+Wardrive promisc: 58 unique networks, 48 BT devices, 12 relogs, D-UCB best ch: 1 (34 visits), GPS: valid, sats: 5, dist: 1240.0m
+```
+  - `relogs` = re-observation rows written (RSSI/position re-logging; rises with distance while driving).
+- **Notes**: Console prints first sightings live; re-logged rows go to the file only (BLE re-logs also print). With `bands=ble` only, runs a BLE-only wardrive (no channel hopping).
+- **Stop**: Send `stop`.
+
+### `start_wardrive_promisc_trace`
+- **Syntax**: `start_wardrive_promisc_trace`
+- **Description**: Same as `start_wardrive_promisc` (still writes `<base>.log`) **and** builds one per-session KML with the drive track, one Wi-Fi POI per unique BSSID, and one BLE POI per unique advertiser address.
+  - **Track**: successive complete `<Placemark><LineString>` segments (buffered ~16 points / 15 s, new vertex every ≥3 m); segments share a point so the line stays continuous. A GPS jump above 100 m starts a new segment without a misleading straight connector.
+  - **POI**: one `<Point>` per first-seen BSSID, with the GPS snapshot from detection time (name = SSID or `<hidden>`; description = BSSID, RSSI, channel, auth, timestamp, altitude, accuracy). Skipped when there is no GPS fix; re-logs never add a second POI. SSID/description are XML-escaped. Marker colours: Open green, WPA/WPA2 mixed purple, WPA2 blue, WPA3/mixed WPA2-WPA3 red, WEP orange, unknown grey.
+  - **BLE POI**: one `<Point>` per first-seen BLE advertiser, with name or `BLE <address>` when unnamed; description includes address, type, RSSI, optional manufacturer ID, timestamp and GPS snapshot. BLE is cyan, AirTag purple, SmartTag amber.
+  - **Crash-safe**: writes to `<base>_track.inprogress.kml` during the run (`<base>` = same UTC datetime as the CSV); a normal `stop` closes the XML and atomically renames it to the final `<base>_track.kml`. Every segment/POI is a complete `<Placemark>` inside one open `<Folder>`, so a power-loss `.inprogress.kml` is repairable by **Tab5/ADV**: locate the last `</Placemark>`, drop the truncated tail, append `</Folder></Document></kml>`.
+  - Plain `start_wardrive_promisc` produces **no** KML/POI. `wardrive_cleanup` moves the final `<base>_track.kml` with `<base>.log` and never moves `.inprogress.kml`.
+- **Stop line**: number of track segments, POIs written, POIs dropped (queue full), and the final KML path.
+- **Stop**: Send `stop`.
+
+### `get_wardrive_config`
+- **Syntax**: `get_wardrive_config`
+- **Description**: Prints the active wardrive configuration (stored in NVS).
+- **Output** (terminated by `[WDCFG] END`):
+```
+[WDCFG] bands=wifi24,wifi5,ble
+[WDCFG] channels=popular
+[WDCFG] custom=
+[WDCFG] wifi_rssi_delta=5
+[WDCFG] ble_rssi_delta=15
+[WDCFG] startup_cooldown=0
+[WDCFG] mem_cap=40000
+[WDCFG] antisurv_sensitivity=med
+[WDCFG] END
+```
+- **Completion marker**: `strstr("[WDCFG] END")`.
+- **Parse**: split each `[WDCFG] key=value` line on `=`.
+
+### `set_wardrive_bands`
+- **Syntax**: `set_wardrive_bands <wifi24|wifi5|ble>[,...]`
+- **Description**: Choose which radios the wardrive uses (any comma-separated mix). `ble` only = BLE-only wardrive.
+- **Examples**: `set_wardrive_bands wifi24,wifi5,ble`, `set_wardrive_bands wifi24,ble`, `set_wardrive_bands ble`
+- **Output**: `Wardrive bands set: wifi24,wifi5,ble`
+- **Errors**: `Unknown band '<x>'. Valid: wifi24, wifi5, ble`
+
+### `set_wardrive_channels`
+- **Syntax**: `set_wardrive_channels <popular|all|custom> [c1:c2:...]`
+- **Description**: Channel selection. `popular` = 2.4 GHz 1/6/11 + 5 GHz non-DFS; `all` = every tier (default); `custom` = colon-separated list (validated, tier auto-classified).
+- **Examples**: `set_wardrive_channels popular`, `set_wardrive_channels all`, `set_wardrive_channels custom 1:6:11:36:149`
+- **Output**: `Wardrive channels set: custom 1:6:11:36:149`
+
+### `set_wardrive_rssi_delta`
+- **Syntax**: `set_wardrive_rssi_delta <wifi|ble> <0-50>`
+- **Description**: Re-log threshold in dBm. A network/device is re-written when its RSSI changes by ≥ this (or after moving beyond GPS accuracy). `0` = legacy "log once".
+- **Examples**: `set_wardrive_rssi_delta wifi 5`, `set_wardrive_rssi_delta ble 15`, `set_wardrive_rssi_delta wifi 0`
+- **Output**: `Wardrive RSSI delta set: wifi=5 ble=15 (0=log once)`
+
+### `set_wardrive_memcap`
+- **Syntax**: `set_wardrive_memcap <1000-200000>`
+- **Description**: Max Wi-Fi entries in RAM before the oldest already-written entries are evicted. Default 40000.
+- **Output**: `Wardrive memory cap set: 40000 entries`
+
+### `set_wardrive_cooldown`
+- **Syntax**: `set_wardrive_cooldown <0-600>`
+- **Description**: Drop all scans during the first N seconds of a run (after GPS fix) so the start area is not logged. `0` = off (default).
+- **Output**: `Wardrive startup cooldown set: 30 s`
+
+### `wardrive_blacklist`
+- **Syntax**: `wardrive_blacklist <add|remove|list|clear> [MAC]`
+- **Description**: MAC blacklist (max 64) excluded from wardrive results, exports, and anti-surveillance. Stored in NVS.
+- **Examples**: `wardrive_blacklist add AA:BB:CC:DD:EE:FF`, `wardrive_blacklist list`, `wardrive_blacklist clear`
+- **List output** (terminated by `Blacklist END`):
+```
+Blacklist: 1/64 entries
+  AA:BB:CC:DD:EE:FF
+Blacklist END
+```
+
+---
+
+## Anti-Surveillance
+
+### `start_antisurveillance`
+- **Syntax**: `start_antisurveillance`
+- **Description**: Detects a BLE device that moves along with you (a possible tail). Runs a continuous BLE scan + GPS; flags a device as a follower when it has been present long enough AND you have travelled far enough while it stayed in range AND it was seen in the last 30 s. Does not log networks to SD. Thresholds come from `set_antisurv_sensitivity`. Blacklisted MACs are ignored.
+- **Alert line** (per newly flagged device):
+```
+[FOLLOWER] MAC=AA:BB:CC:DD:EE:FF name="Smart Tag" type=SmartTag rssi=-60 seen=240s travel=2100m
+```
+- **Parse**: `MAC=`, `name="..."`, `type=` (AirTag|SmartTag|device), `rssi=`, `seen=Ns`, `travel=Nm`.
+- **Notes**: Needs a GPS fix and movement. A loop back to start can flag a stationary device near the origin — blacklist your own devices; most reliable on a one-way route.
+- **Stop**: Send `stop`.
+
+### `set_antisurv_sensitivity`
+- **Syntax**: `set_antisurv_sensitivity <low|med|high>`
+- **Description**: Follower-detection sensitivity. Stored in NVS; also shown by `get_wardrive_config`.
+
+| Level | Min duration | Min travel | Randomized MACs |
+|-------|-------------|-----------|-----------------|
+| low   | 300 s       | 1000 m    | excluded |
+| med   | 180 s       | 500 m     | excluded |
+| high  | 120 s       | 300 m     | included |
+
+- **Output**: `Anti-surveillance sensitivity: high (>=120s present, >=300m travel, randoms=yes)`
+
+---
+
+## SD Card Operations
+
+### `sd_status`
+- **Syntax**: `sd_status`
+- **Description**: Fast SD card presence check. Does NOT initialize or mount SD — only checks if already accessible.
+- **Output**: `"SD_OK"` if SD is mounted and accessible, `"SD_NONE"` otherwise.
+- **Completion marker**: Either `strstr("SD_OK")` or `strstr("SD_NONE")`
+- **Notes**: Returns within ~200ms. Use this instead of `list_sd` when you only need to know if SD is present.
+
+### `list_sd`
+- **Syntax**: `list_sd`
+- **Description**: Lists HTML portal files on SD card.
 - **Output**:
 ```
-[SUBGHZ_TX] idx=1 source=mem done
+HTML files found on SD card:
+1 PLAY.html
+2 SocialMedium.html
+3 ryanair.html
 ```
-- **Errors**: `"Invalid source"`, `"Failed to load signal N from <mem|sd>"`, `"SubGHz not initialized"`, `"Key has no transmittable data"`.
-- **Notes**: For mem-source TX of a KeeLoq/StarLine key, the rolling counter is bumped and — if a corresponding `.sub` file already exists in `/sdcard/lab/subghz/<name>.sub` — that file is silently rewritten so the saved copy stays in sync.
+- **Header marker**: `strstr("HTML files found")`
+- **Parse**: `sscanf(line, "%d %63s", &index, filename)`
 
----
+### `select_html`
+- **Syntax**: `select_html <index>`
+- **Description**: Loads HTML file by 1-based index for portal/rogue AP/evil twin.
+- **Example**: `select_html 4`
+- **Output**: `"Loaded HTML file: voda.html (3315 bytes)"`
 
-## Jammer
+### `set_html`
+- **Syntax**: `set_html <html_string>`
+- **Description**: Sets portal HTML directly from command line.
 
-### `subghz_jam`
-- **Syntax**: `subghz_jam`
-- **Description**: Continuous jamming on the current frequency (CC1101 unmodulated TX). Set the frequency first with `subghz_freq`.
+### `list_dir`
+- **Syntax**: `list_dir [path] [-s]`
+- **Description**: Lists files in a directory. Default path: `lab/handshakes`. Add `-s` in any argument position to print each file's decimal byte size before its name.
+- **Example**: `list_dir /sdcard/lab/handshakes`
 - **Output**:
 ```
-SubGHz jammer ACTIVE on 433.92 MHz. Use 'subghz_stop' to end.
+Files in /sdcard/lab/handshakes:
+1 VMA84A66C-2.4_83C73F_91148.hccapx
+2 VMA84A66C-2.4_83C73F_91148.pcap
+3 AX3_2.4_3C3F64_405785.pcap
+Found 6 file(s) in /sdcard/lab/handshakes
 ```
-- **Stop**: `subghz_stop`.
+- **Size output**: `list_dir -s /sdcard/lab/handshakes` prints file lines as `<index> <size_bytes> <name>`. If the size cannot be read, it prints `0` and keeps the file in the list.
+- **Parse**: Filter `.pcap` files, skip `.hccapx`. Strip extension for display name.
 
----
+### `file_delete`
+- **Syntax**: `file_delete <path>`
+- **Description**: Deletes a file on SD card.
+- **Example**: `file_delete lab/handshakes/sample.pcap`
 
-## Frequency Analyzer (Flipper-style scan + auto-capture)
-
-The analyzer is a Flipper Momentum port. It performs a **two-stage scan** identical to Flipper's Frequency Analyzer, with optional auto-capture ("hunt mode") that demodulates a hit, decodes it, and saves it into the keystore — exactly like `subghz_rx` would, but scoped to one captured burst per detected hit.
-
-### `subghz_freq_analyzer`
-- **Syntax**: `subghz_freq_analyzer [trigger_dbm] [hunt|raw] [single] [fast] [debug] [timeout=MS|MSms]`
-  - All args are positional but order-independent.
-  - `trigger_dbm`: negative dBm in **-120 … -40** (e.g. `-85`, `-90`). Default: **-85 dBm**. Other numeric tokens are ignored for trigger.
-  - `hunt`: enable auto-capture with **decode** (will save the most likely protocol or fall back to RAW).
-  - `raw`: enable auto-capture in **raw-only** mode (skip decoding, save edges).
-  - `hunt` and `raw` are mutually exclusive — passing either turns hunt on. `raw` implies `hunt`.
-  - `single`: **decode hunt only** (use with `hunt`, not `raw`). Ends capture after **one OOK burst + ~100 ms silence** (raw-edge ISR). Without `single`, decode hunt uses Flipper/RCSwitch **double-gap** framing (typically needs two button presses or a long hold).
-  - `fast`: **Shorter RSSI settle** per scan step (~800 µs vs ~2000 µs). With hunt enabled, also enables **sticky** resample: before each coarse pass the last hunt hit frequency is sampled first for faster re-lock.
-  - `debug`: emit **`[SUBGHZ_FA_DIAG]`** after each `[SUBGHZ_FA]` hit — raw fine peak, filter/snap pipeline, top-3 fine bins, and RSSI probe on the two adjacent Flipper list entries around the peak. Use to tell **hardware LO offset** from **snap / 20 kHz step** artifacts. Adds ~2 extra tune steps per fine hit.
-  - `timeout=MS` or `NNNNms` (e.g. `timeout=3500`, `2500ms`): per-hit capture window **100 … 60000 ms**; invalid or omitted → **2000 ms** default.
-  - Plain `hunt` (no `single`): still uses double-gap capture; **RX after hit** uses a lighter preset switch (no full chip `SRES`) for lower latency than older builds.
-
-- **Examples**:
-```
-subghz_freq_analyzer                      # scan-only, default trigger -85 dBm
-subghz_freq_analyzer -90                  # scan-only, sensitive trigger
-subghz_freq_analyzer hunt                 # scan + auto-capture + decode (default trigger)
-subghz_freq_analyzer hunt single fast     # decode hunt: one press + faster scan + sticky
-subghz_freq_analyzer hunt timeout=3000   # decode hunt, 3 s capture window
-subghz_freq_analyzer hunt 2500ms         # same (suffix ms)
-subghz_freq_analyzer raw                  # scan + auto-capture, raw timings only
-subghz_freq_analyzer -80 hunt             # custom trigger + decode
-subghz_freq_analyzer raw -75              # custom trigger + raw, args reversible
-subghz_freq_analyzer fast                 # scan-only but faster coarse/fine steps
-subghz_freq_analyzer -80 debug            # sensitive trigger + MHz diagnostics
-```
-
-- **Frequency diagnostics (`debug`)** — emitted only with `debug`, throttled when `fine_peak` is unchanged within **10 kHz**:
-```
-[SUBGHZ_FA] freq=433.8890 rssi=-72 stage=fine
-[SUBGHZ_FA_DIAG] coarse=433.8890 coarse_rssi=-68 fine_peak=433.8890 fine_rssi=-72 top3=433.889:-72,433.909:-75,433.929:-78 filt_hz=433889000 round_hz=433889000 snapped=433.8890 snap_err_hz=0 pair=433.889:-72,433.920:-65 est_offset_khz=31
-```
-
-| Field | Meaning |
-|-------|---------|
-| `coarse` / `coarse_rssi` | Stage-1 list winner (650 kHz BW) |
-| `fine_peak` / `fine_rssi` | Stage-2 sweep bin with max RSSI **before** filter/snap |
-| `top3` | Three strongest fine bins (20 kHz steps) |
-| `filt_hz` / `round_hz` | After Flipper `filVal` and `round_int(3)` |
-| `snapped` | Nearest `s_fa_freq_list[]` entry (same as `[SUBGHZ_FA] freq`) |
-| `snap_err_hz` | `snapped` minus `round_hz` |
-| `pair` | Extra RSSI at the two list entries bracketing `fine_peak` |
-| `est_offset_khz` | Offset from `fine_peak` toward the louder `pair` entry (kHz) |
-
-**How to read** (compare with a known TX frequency, e.g. HackRF @ 433.920 MHz):
-
-- **`est_offset_khz` ≈ 31** and **`pair`** shows stronger RSSI on **433.920** than on **433.889** while **`fine_peak`=433.889** → **CC1101 LO offset** (~+31 kHz vs programmed MHz); not a wrong transmitter.
-- **`fine_peak`** near **433.909/433.929** but **`snapped`=433.889** → **snap** or filter (check `filt_hz` vs `round_hz`).
-- **`top3`** peak on **433.909** with similar **`pair`** RSSI → **20 kHz fine step** quantization; not necessarily hardware offset.
-
-Coarse-only hits with `debug` emit a shorter line: `stage=coarse note=no_fine`.
-
-- **Behaviour**:
-  - **Stage 1 — Coarse scan**: iterates the Flipper Momentum default frequency list (length printed as `%u freqs` on task start) with 650 kHz RX bandwidth, skipping a small blacklist (`462.75`, `464.00`, `467.75`, `311.9–312.2 MHz`, anything `>920 MHz`). Tracks the strongest signal above `trigger_dbm`. Per-step RX settle: **~2000 µs** normally, **~800 µs** with `fast`.
-  - **Stage 2 — Fine scan**: when a coarse hit is above trigger, sweeps ±300 kHz around it in 20 kHz steps with 58 kHz RX bandwidth and emits the strongest fine bin (same settle timing as coarse).
-  - **Frequency processing**: **fine** hits use adaptive averaging in Hz (`filVal`, reset on `silent` or when raw fine jumps >200 kHz from filtered value) → **`round_int` on first lock** (3 Hz digits) → **snap** to `s_fa_freq_list[]`. **Coarse-only** hits use snap/round only (no `filVal` update) so a wrong 650 kHz list neighbour cannot pull fine results to e.g. 433.657 when TX is at 433.92.
-  - **Sample-hold**: keeps a hit "active" for a few cycles to debounce dropouts; when it expires without a refresh, emits a `silent` line and clears the frequency filter.
-  - **Hunt mode** (when `hunt` or `raw` is set): on each fine/coarse hit the firmware switches the CC1101 from Analyzer preset to the **OOK 650 kHz async RX** preset (without full chip reset), arms the GDO0 ISR, waits up to the configured **timeout** (default **2000 ms**) for a burst, then either runs the decoder pipeline (decode mode) or packages raw edges (raw mode). After the capture window, restores the Analyzer preset and resumes scanning.
-
-- **Lifecycle output**:
-```
-[subghz] Frequency Analyzer task started (trigger=-85 dBm, 62 freqs, hunt=1 raw=0 single=0 fast=0 debug=0 tmo=2000ms)
-[SUBGHZ_FA_START] trigger=-85 hunt=1 raw=0 single=0 fast=0 debug=0 tmo=2000ms
-Frequency analyzer active. Use 'subghz_stop' to end.
-... (continuous events, see below) ...
-[subghz] Frequency Analyzer task stopped
-```
-  - The `62 freqs` value is illustrative; firmware prints the actual `FA_FREQ_COUNT`. `single`, `fast`, and `tmo` reflect the selected options.
-
-- **Continuous events**:
-
-| Line | Meaning | Parse |
-|------|---------|-------|
-| `[SUBGHZ_FA_START] trigger=<dBm> hunt=<0\|1> raw=<0\|1> single=<0\|1> fast=<0\|1> debug=<0\|1> tmo=<ms>ms` | Analyzer started (one-shot) | `sscanf(line, "[SUBGHZ_FA_START] trigger=%d hunt=%d raw=%d single=%d fast=%d debug=%d tmo=%dms", ...)` |
-| `[SUBGHZ_FA] freq=<MHz> rssi=<dBm> stage=<coarse\|fine>` | Hit above trigger; `freq` is snapped to the nearest Flipper list entry (not the raw fine/coarse bin). `fine` is more accurate before snap. | `sscanf(line, "[SUBGHZ_FA] freq=%f rssi=%d stage=%7s", &f, &rssi, stage)` |
-| `[SUBGHZ_FA_DIAG] ...` | Optional MHz pipeline debug (only with CLI `debug`); see table above | grep / manual parse |
-| `[SUBGHZ_FA] hunt capture freq=<MHz> stage=<coarse\|fine> timeout=<ms>ms mode=<decode\|raw>` | Hunt mode armed a capture window on this frequency. UI: show "capturing…" indicator. | `sscanf(line, "[SUBGHZ_FA] hunt capture freq=%f stage=%7s timeout=%dms mode=%7s", &f, stage, &to, mode)` |
-| `[SUBGHZ_FA] hunt timeout (no burst captured)` | The capture window expired without seeing edges. UI: clear "capturing…" indicator. | literal substring |
-| `[SUBGHZ_FA] hunt error (alloc/save)` | Capture buffer alloc failed or NVS save failed. | literal substring |
-| `[SUBGHZ_FA] hunt duplicate (already in keystore)` | Burst was captured but matched an existing key (dedup). | literal substring |
-| `[SUBGHZ_FA] silent (last freq=<MHz> rssi=<dBm>)` | Sample-hold expired; nothing detected for the cooldown window. | `sscanf(line, "[SUBGHZ_FA] silent (last freq=%f rssi=%d)", &f, &rssi)` |
-
-- **Hunt mode also emits the standard receive events**, exactly as `subghz_rx` would, between `hunt capture` and the terminator (`[SUBGHZ_RX]` / `[SUBGHZ_RAW]` / `[SUBGHZ_RX_DUP]` / `hunt timeout`):
-  - `[KL_DEC] ...`
-  - `[KAT_RX] ...`
-  - `[KAT_DBG] decode failed: ...`
-  - `[SUBGHZ_RX] idx=N type=... freq=... ... name=BASENAME` (decode mode, decoded)
-  - `[SUBGHZ_RAW] idx=N freq=... edges=N name=BASENAME` (decode failed → raw fallback, or raw mode)
-  - `SubGHz: key saved at index N` (legacy human-readable line, optional to parse)
-  - `[REPLAY_SEG] start=N len=N type=...` — decode segment summary (one per successful capture).
-  - `[subghz]` RCSwitch timing lines (`RAW t[0..9]:`, `TE corrected:`, `Reclassified to proto=...`) — **off by default**; `subghz_debug rc_dbg on` or `subghz_replay_test` only.
-  - Every `[SUBGHZ_RX]` / `[SUBGHZ_RAW]` / `[SUBGHZ_RX_DUP]` carries a trailing `name=BASENAME` field — the human-readable name of the in-memory entry, mutable via `subghz_rename`. Use it as a stable display label.
-
-- **Capture window state machine** (per hit, hunt mode; `timeout=` value comes from CLI / defaults):
-```
-[SUBGHZ_FA] freq=… rssi=… stage=…
-[SUBGHZ_FA] hunt capture freq=… stage=… timeout=2000ms mode=decode
-   │
-   ├─→ (decode success)        [KL_DEC] / [KAT_RX] / [SUBGHZ_RX]
-   ├─→ (decode failure → raw)  [KAT_DBG] / [SUBGHZ_RAW]
-   ├─→ (no edges)              [SUBGHZ_FA] hunt timeout (no burst captured)
-   ├─→ (dedup)                 [SUBGHZ_FA] hunt duplicate (already in keystore)
-   └─→ (alloc/save fail)       [SUBGHZ_FA] hunt error (alloc/save)
-[SUBGHZ_FA] silent (last freq=… rssi=…)   ← (when sample-hold expires later)
-```
-
-- **Annotated hunt-mode example** (matches the user-visible log; `hunt` without `single` — legacy double-gap framing):
-```
-> subghz_freq_analyzer hunt
-[subghz] CC1101 chip: PARTNUM=0x00 VERSION=0x14 (expect 0x00/0x14)            ← boot diag
-[subghz] Capture buffers: 8192 entries (32 KB each) in PSRAM                  ← boot diag
-[subghz] Regs: MDMCFG2=0x30 PKTCTRL0=0x32 AGCCTRL2=0x07 IOCFG0=0x0D MARC=0x0D ← boot diag
-[KAT] Keystore loaded: 84 manufacturer keys                                   ← boot diag
-[subghz] Timer self-test: 1000us delay measured as 1002 us                    ← boot diag
-[subghz] CC1101 initialized on SPI2 (CS=3 GDO0=4) @ 433.92 MHz                ← boot diag
-[subghz] Frequency Analyzer task started (trigger=-85 dBm, 62 freqs, hunt=1 raw=0 single=0 fast=0 tmo=2000ms)  ← lifecycle
-[SUBGHZ_FA_START] trigger=-85 hunt=1 raw=0 single=0 fast=0 tmo=2000ms        ← GUI: enter "FA Hunt" state
-Frequency analyzer active. Use 'subghz_stop' to end.                          ← human hint
-> [SUBGHZ_FA] freq=433.8489 rssi=-50 stage=fine                               ← GUI: hit @ 433.85 MHz
-[SUBGHZ_FA] hunt capture freq=433.8489 stage=fine timeout=2000ms mode=decode  ← GUI: spinner ON
-[KL_DEC] bits=65 te_auto=400 fix=0x2004DEC1 hop=0x3B760601 plain=0x22C19144 learn=4 mf=Leopard cnt=37188
-[KAT_RX] KeeLoq decoded+decrypted: serial=0x04DEC1 btn=2 cnt=37188 mf=Leopard learn=MAGIC_XOR_T1
-SubGHz: key saved at index 1                                                  ← legacy human line
-[SUBGHZ_RX] idx=1 type=KeeLoq freq=433.85 bits=65 serial=0x04DEC1 btn=2 proto=KeeLoq learn=MAGIC_XOR_T1 mf=Leopard cnt=37188 te=355  ← GUI: spinner OFF, append row idx=1
-[SUBGHZ_FA] freq=433.657 rssi=-44 stage=coarse                                ← GUI: hit @ 433.657 MHz
-[SUBGHZ_FA] hunt capture freq=433.6571 stage=coarse timeout=2000ms mode=decode← GUI: spinner ON
-[SUBGHZ_FA] hunt timeout (no burst captured)                                  ← GUI: spinner OFF, miss
-[SUBGHZ_FA] silent (last freq=433.657 rssi=-44)                               ← GUI: idle
-[SUBGHZ_FA] freq=433.9088 rssi=-60 stage=fine
-[SUBGHZ_FA] hunt capture freq=433.9088 stage=fine timeout=2000ms mode=decode
-[REPLAY_SEG] start=317 len=27 type=HOLTEK deep=0 static=0 score=1             ← one line per decode hit
-SubGHz: key saved capture_seq=2                                             ← legacy human line
-[SUBGHZ_RX] idx=2 type=HOLTEK freq=433.91 bits=12 id=3F0A te=337 proto=HOLTEK learn=UNKNOWN mf=- cnt=0    ← GUI: append row idx=2
-[SUBGHZ_FA] freq=433.8950 rssi=-60 stage=fine
-[SUBGHZ_FA] hunt capture freq=433.8950 stage=fine timeout=2000ms mode=decode
-[SUBGHZ_FA] hunt timeout (no burst captured)
-[SUBGHZ_FA] silent (last freq=433.895 rssi=-60)
-[SUBGHZ_FA] freq=433.8999 rssi=-54 stage=fine
-[SUBGHZ_FA] hunt capture freq=433.8999 stage=fine timeout=2000ms mode=decode
-[KAT_DBG] decode failed: KL step=0 bits=0 hc=0 te_auto=0 | SL step=0 bits=0 hc=0 | FLOR step=2 bits=0 hc=1
-SubGHz: key saved at index 3
-[SUBGHZ_RAW] idx=3 freq=433.90 edges=154                                      ← GUI: append row idx=3 (RAW)
-[SUBGHZ_FA] silent (last freq=433.900 rssi=-54)
-[SUBGHZ_FA] freq=433.8770 rssi=-60 stage=fine
-[SUBGHZ_FA] hunt capture freq=433.8770 stage=fine timeout=2000ms mode=decode
-[KAT_RX] Nice FloR-S decoded+decrypted: serial=0x44A2582 btn=1 cnt=3040 mf=Nice One learn=UNKNOWN
-SubGHz: key saved at index 4
-[SUBGHZ_RX] idx=4 type=Nice FloR-S freq=433.88 bits=72 serial=0x44A2582 btn=1 proto=Nice FloR-S learn=UNKNOWN mf=Nice One cnt=3040 te=0  ← GUI: append row idx=4
-> subghz_stop
-[subghz] Frequency Analyzer task stopped
-SubGHz operations stopped.
-> subghz_list mem
-[SUBGHZ_LIST] idx=1 type=KeeLoq freq=433.85 bits=65 serial=0x04DEC1 btn=2 cnt=37188 mf=Leopard learn=MAGIC_XOR_T1 name=00001_KeeLoq_433.85_04DEC1
-[SUBGHZ_LIST] idx=2 type=HOLTEK freq=433.91 bits=12 id=3F0A te=337 mf=- name=00002_HOLTEK_433.91_3F0A
-[SUBGHZ_LIST] idx=3 type=RAW freq=433.90 edges=154 name=00003_raw_433900
-[SUBGHZ_LIST] idx=4 type=Nice FloR-S freq=433.88 bits=72 serial=0x44A2582 btn=1 cnt=3040 mf=Nice One learn=- name=00004_Nice_FloR-S_433.88_44A2582
-[SUBGHZ_LIST_END] count=4 source=mem
-```
-
-- **Stop**: `subghz_stop` (terminates the analyzer task and the active capture window if any).
-
-- **Notes / gotchas (frequency analyzer)**:
-  - The trigger value matters a lot: -85 dBm is the safe default for ESP32 + external CC1101 modules whose noise floor is higher than Flipper's internal radio. Drop to -90/-95 only on very clean RF environments.
-  - `462.75 / 464.00 / 467.75 MHz` and `311.9–312.2 MHz` are blacklisted because the CC1101 produces persistent in-band birdies on most external modules.
-  - **Decode hunt without `single`** expects RCSwitch-style **two matching inter-frame gaps**; a single short click often times out — use `hunt single` (optionally with `fast`) for one-burst + silence capture, or press the remote twice.
-  - In hunt mode, between `hunt capture …` and one of the three terminating events (`[SUBGHZ_RX]` / `[SUBGHZ_RAW]` / `hunt timeout|error|duplicate`), the GUI should show a "capturing…" overlay/spinner. After it ends, return to the FA waterfall view.
-  - Hunt mode reuses the same in-memory cache as `subghz_rx`, so captured signals show up immediately in `subghz_list mem` (and can be promoted to SD with `subghz_save`).
-  - **C API**: extended options are on `subghz_start_analyzer_ex(trigger, hunt, raw, hunt_single_frame, hunt_timeout_ms, fast_scan, freq_debug)`; `subghz_start_analyzer(...)` is equivalent to `ex(..., false, 0, false, false)` (default timeout 2000 ms when `hunt_timeout_ms` is 0).
-
----
-
-## Traffic Scanner (edge-activity scan over the FA freq list)
-
-A lighter-weight cousin of the Frequency Analyzer: it visits the **same** Flipper Momentum frequency list (`s_fa_freq_list[]`, ~62 entries, 300/430/868 MHz bands), and for each frequency it briefly arms the GDO0 edge-counter to see whether anything is actually transmitting OOK at the moment. There is no fine scan and no hunt — just a continuous "where is something talking right now" loop.
-
-### `subghz_scanner`
-- **Syntax**: `subghz_scanner [dwell=MS] [edges=N] [rssi=DBM|-DBM] [fast] [debug]`
-  - All args are positional but order-independent.
-  - `dwell=MS`: per-frequency listen window (default **80 ms**, range **20…500 ms**).
-  - `edges=N`: minimum GDO0 edges in the dwell window to count as traffic (default **4**, range **1…10000**).
-  - `rssi=DBM` (or a bare negative-dBm token like `-80`): RSSI floor — hits weaker than this are treated as noise (default **-75 dBm**, range **-120…-40**). Bare-token form mirrors `subghz_freq_analyzer`.
-  - `fast`: shorter calibration settle (~0.8 ms vs 2 ms) per frequency tune, like `subghz_freq_analyzer fast`.
-  - `debug`: emit **`[SUBGHZ_SCAN_DIAG]`** after each `[SUBGHZ_SCAN_HIT]` with cluster centroid vs snapped frequency.
-
-- **Examples**:
-```
-subghz_scanner                            # defaults (80 ms dwell, edges>=4, rssi>=-75 dBm)
-subghz_scanner dwell=120 edges=8          # less twitchy, fewer false hits
-subghz_scanner edges=2 fast               # more sensitive on edges + faster scan
-subghz_scanner rssi=-80                   # widen RSSI window (catches weaker bursts)
-subghz_scanner -85 edges=8                # Flipper-style trigger + tighter edge gate
-subghz_scanner debug dwell=120            # centroid vs snap diagnostics
-```
-
-- **Behaviour**:
-  - For each non-blacklisted frequency: switch to the standard OOK 650 kHz async RX preset, settle, arm the GDO0 edge ISR, sleep `dwell_ms`, snapshot edge count + RSSI, disable ISR.
-  - A frequency qualifies as a **hit** when `count >= edges` **AND** `rssi >= rssi_floor`. The RSSI gate exists because the CC1101 + ESP32 module noise floor pings at ~-85 to -100 dBm, and edge-count alone cannot tell those apart from a real -50 dBm burst.
-  - **Adjacent-frequency clustering**: a single transmission lights up every entry of `s_fa_freq_list[]` within ~±500 kHz because the OOK RX preset uses 650 kHz BW. The scanner collapses contiguous in-band hits into one cluster. The reported `freq` applies the same pipeline as FA to the cluster's RSSI-weighted centroid: **Hz smoothing + round_int(3) + snap** to the nearest list entry (not the raw strongest channel). `edges` / `rssi` still come from the strongest channel in the cluster. The filter resets on scanner start and after **2+ silent passes** (new session). A cluster is closed as soon as the next scanned frequency is more than 500 kHz past the last hit — that includes inter-band jumps (e.g. 467 → 779 MHz).
-  - **Cross-pass sample-hold dedup**: a cluster representative is only re-emitted on a later pass if either the cluster's centre drifts more than 500 kHz or **2+ consecutive fully-silent passes** broke the streak — so a continuously-active transmitter generates one event per "session", not one per pass.
-  - At the end of each full pass: emit `[SUBGHZ_SCAN_PASS] freqs=N hits=N` where `hits` is the number of clusters seen this pass (not the number of raw frequency hits).
-
-- **Lifecycle output**:
-```
-[subghz] Scanner task started (dwell=80ms edges=4 rssi=-75 freqs=62 fast=0 debug=0)
-[SUBGHZ_SCAN_START] dwell=80ms edges=4 rssi=-75 fast=0 debug=0
-SubGHz scanner active. Use 'subghz_stop' to end.
-... (continuous events, see below) ...
-[subghz] Scanner task stopped
-```
-
-- **Continuous events**:
-
-| Line | Meaning | Parse |
-|------|---------|-------|
-| `[SUBGHZ_SCAN_START] dwell=<ms>ms edges=<N> rssi=<dBm> fast=<0\|1> debug=<0\|1>` | Scanner started (one-shot) | `sscanf(line, "[SUBGHZ_SCAN_START] dwell=%dms edges=%d rssi=%d fast=%d debug=%d", ...)` |
-| `[SUBGHZ_SCAN_HIT] freq=<MHz> edges=<N> rssi=<dBm>` | Traffic cluster; `freq` is snapped to nearest list entry (4-decimal precision). | `sscanf(line, "[SUBGHZ_SCAN_HIT] freq=%f edges=%u rssi=%d", &f, &edges, &rssi)` |
-| `[SUBGHZ_SCAN_DIAG] centroid=... rep=... filt_hz=... snapped=... snap_err_hz=... cluster_span_mhz=...` | Optional (CLI `debug`): RSSI-weighted centroid before snap vs reported `freq` | grep / manual parse |
-| `[SUBGHZ_SCAN_PASS] freqs=<N> hits=<N>` | End of a full pass over the freq list (`hits` = clusters this pass) | `sscanf(line, "[SUBGHZ_SCAN_PASS] freqs=%u hits=%d", &nfreqs, &hits)` |
-
-- **Example output** (one transmitter active at 433.92 MHz; `subghz_scanner`):
-```
-[SUBGHZ_SCAN_START] dwell=80ms edges=4 rssi=-75 fast=0
-[SUBGHZ_SCAN_HIT]   freq=433.9200 edges=79 rssi=-39    # cluster snapped to 433.92 (not 433.889)
-[SUBGHZ_SCAN_PASS]  freqs=62 hits=1
-[SUBGHZ_SCAN_PASS]  freqs=62 hits=0                    # transmitter went quiet
-[SUBGHZ_SCAN_PASS]  freqs=62 hits=0
-[SUBGHZ_SCAN_HIT]   freq=433.9200 edges=82 rssi=-37    # re-emitted: streak broke (≥2 silent passes)
-[SUBGHZ_SCAN_PASS]  freqs=62 hits=1
-```
-
-- **Stop**: `subghz_stop`.
-
-- **Notes / gotchas (scanner)**:
-  - Same blacklist as the Frequency Analyzer applies (`311.9–312.2 MHz`, `462.75 / 464.00 / 467.75 MHz`, anything `>920 MHz`).
-  - The edge-counter is the same `s_isr_edge_count` used by the existing capture pipeline — `subghz_scanner` just reads it after a fixed dwell rather than waiting for a complete RCSwitch double-gap frame, so it picks up burst traffic that the analyzer would only catch through the full coarse → fine → hunt pipeline.
-  - `dwell` is the dominant per-frequency cost; with the default 80 ms × 62 frequencies a full pass is ~5 s. Dropping `dwell` to 30 ms and using `fast` gets you ~2 s/pass at the cost of more borderline misses.
-  - **Tuning the RSSI floor**: -75 is a safe default that filters every CC1101 noise-floor false positive observed in testing (which typically clusters at -84 to -100 dBm). Drop to `-80` or `-85` only if you are losing real weak hits and can tolerate noise re-appearing.
-  - **Two real transmitters within ±500 kHz** of each other will be reported as **one** cluster (the stronger one wins). The cluster window is fixed at 500 kHz today — it is tied to the CC1101 OOK RX BW (650 kHz). Exposing it as a CLI knob is a future option if a real use case appears.
-  - **C API**: `subghz_start_scanner(int dwell_ms, int edges_threshold, int min_rssi_dbm, bool fast_scan, bool freq_debug)`. Pass 0 for any default (including `min_rssi_dbm`); values outside `-120…-40` also fall back to default.
-
----
-
-## Weather Sensor Receiver (433.92 MHz OOK)
-
-Continuously listens on 433.92 MHz with the standard OOK preset and runs each captured burst through a stack of weather-sensor decoders. Loops until `subghz_stop`. No CLI options — everything is auto-detected.
-
-### `subghz_weather`
-- **Syntax**: `subghz_weather`
-
-- **Decoded protocols** (all OOK, 433.92 MHz). 24 ports of Flipper Momentum's "Weather Station" decoder set. Acurite first, then Manchester-encoded Oregon, then PWM long-pulse families, then proprietary formats, then no-CRC formats:
-  - **Acurite-5n1**, **Acurite-592TXR**, **Acurite-609TXC**, **Acurite-606TX**, **Acurite-986** — Acurite family (56/64-bit PWM with byte-sum + parity).
-  - **EMOS-E601x** — 120-bit PWM with byte-sum checksum.
-  - **TX_8300** — Ambient Weather TX-8300 / TFA 30.3211 (72-bit PWM with inverted-payload + Fletcher-8).
-  - **Oregon-v3.0**, **Oregon2_3**, **Oregon-v1** — Manchester-encoded Oregon Scientific.
-  - **ThermoPRO-TX4**, **Bresser-3CH**, **LaCrosse-TX141TH-Bv2**, **LaCrosse-TX**, **GT-WT02**, **GT-WT03** — PWM with proprietary checksums.
-  - **Vauno-EN8822C**, **Auriol-AHFL**, **AmbientWeather-F007TH**, **inFactory-TH**, **Kedsum-TH** — fixed-nibble + nibble/byte-sum checksums.
-  - **Wendox-W6726** — long-pulse (~5.8 ms) PWM with CRC-4.
-  - **Solight-TE44**, **Auriol-TH** — Auriol/Solight family. Solight tested first (CRC8 stricter than HG0601A's fixed-nibble check).
-  - **Nexus-TH** — last-resort 36-bit Nexus/Rubicson decoder (no CRC, only sanity checks).
-
-- **Output line**:
-```
-[SUBGHZ_WEATHER] proto=<NAME> id=0x<HEX> ch=<N|-> temp=<C> hum=<%|-> batt=<ok|low>
-```
-  - `proto`: one of the 24 names above.
-  - `id`: sensor ID (rolling on battery insertion for most). Hex.
-  - `ch`: channel `1..3` for sensors that have one, `-` otherwise.
-  - `temp`: degrees Celsius with one decimal. `-` if the protocol carries no temperature (e.g. LaCrosse-TX humidity-only frames).
-  - `hum`: relative humidity in %. `-` for protocols without humidity.
-  - `batt`: `ok` or `low` from the sensor's battery flag.
-
-- **Examples** (illustrative — not a single capture):
-```
-[SUBGHZ_WEATHER] proto=Acurite-592TXR id=0x12AB ch=1 temp=23.4 hum=48 batt=ok
-[SUBGHZ_WEATHER] proto=Acurite-606TX id=0xC1 ch=- temp=-3.2 hum=- batt=ok
-[SUBGHZ_WEATHER] proto=Bresser-3CH id=0x12 ch=2 temp=18.1 hum=55 batt=low
-[SUBGHZ_WEATHER] proto=LaCrosse-TX141THBv2 id=0x7E ch=1 temp=22.5 hum=43 batt=ok
-[SUBGHZ_WEATHER] proto=Oregon-v3.0 id=0xF824 ch=1 temp=19.7 hum=62 batt=ok
-```
-
-- **Lifecycle output**:
-```
-[subghz] Weather task started on 433.92 MHz
-[SUBGHZ_WEATHER_START] freq=433.92
-SubGHz weather active. Use 'subghz_stop' to end.
-... (continuous events) ...
-[subghz] Weather task stopped
-```
-
-- **Continuous events**:
-
-| Line | Meaning | Parse |
-|------|---------|-------|
-| `[SUBGHZ_WEATHER_START] freq=<MHz>` | Receiver started (one-shot) | `sscanf(line, "[SUBGHZ_WEATHER_START] freq=%f", &freq)` |
-| `[SUBGHZ_WEATHER] proto=<N> id=0x<H> ch=<N\|-> temp=<C> hum=<%\|-> batt=<ok\|low>` | Decoded report (deduplicated) | `sscanf(line, "[SUBGHZ_WEATHER] proto=%31s id=0x%lX ch=%7s temp=%15s hum=%7s batt=%7s", proto, &id, ch, temp, hum, batt)` |
-
-- **Stop**: `subghz_stop`.
-
-- **Notes / gotchas (weather)**:
-  - Sensors typically transmit every 30–60 s. The first reading from a given sensor will appear within that window — be patient; an empty log for two minutes is normal if no sensor is in range.
-  - Same-(proto, id, ch) packets are **deduplicated** for ~30 s unless `temp` or `hum` changed. The 3–6× repeat that most cheap sensors emit per burst therefore produces **one** `[SUBGHZ_WEATHER]` line, not six.
-  - `temp` is always emitted with one decimal; negative values are sign-extended (`temp=-3.2`). `hum` and `ch` can be the literal string `-` for protocols that don't carry them — handle both `%d` and `-` when parsing.
-  - 868 MHz FSK weather sensors (LaCrosse TX29/TX35, Bresser 5-in-1) are **not** supported — those need a separate FSK preset and are out of scope for this command.
-  - **C API**: `subghz_start_weather()` (no args).
-
----
-
-## Signal library (mem cache + SD library)
-
-All commands that touch an individual signal take `<mem|sd>` as their source.
-See the [Storage model](#storage-model-mem-vs-sd) section at the top for the
-full lifetime rules; commands below assume you already know whether you want
-the volatile mem cache or the persistent SD library.
-
-### `subghz_list`
-- **Syntax**: `subghz_list <mem|sd>`
-- **Description**: Lists signals from the chosen source. The row format is identical for both sources so a single UI parser works.
-- **Output (mem)**:
-```
-[SUBGHZ_LIST] idx=1 type=KeeLoq freq=433.85 bits=65 serial=0x04DEC1 btn=2 cnt=37188 mf=Leopard learn=MAGIC_XOR_T1 name=00001_KeeLoq_433.85_04DEC1
-[SUBGHZ_LIST] idx=2 type=HOLTEK freq=433.91 bits=12 id=3F0A te=337 mf=- name=00002_HOLTEK_433.91_3F0A
-[SUBGHZ_LIST] idx=3 type=RAW freq=433.90 edges=154 name=00003_raw_433900
-[SUBGHZ_LIST] idx=4 type=Nice FloR-S freq=433.88 bits=72 serial=0x44A2582 btn=1 cnt=3040 mf=Nice One learn=- name=00004_Nice_FloR-S_433.88_44A2582
-[SUBGHZ_LIST_END] count=4 source=mem
-```
-- **Output (sd)**:
-```
-[SUBGHZ_LIST] idx=1 type=KeeLoq freq=433.85 bits=65 serial=0x04DEC1 btn=2 cnt=37188 mf=Leopard learn=MAGIC_XOR_T1 name=00001_KeeLoq_433.85_04DEC1
-[SUBGHZ_LIST] idx=2 type=HOLTEK freq=433.91 bits=12 id=3F0A te=337 mf=- name=garageMain
-[SUBGHZ_LIST_END] count=2 source=sd
-```
-- **Field layouts** (mirror `[SUBGHZ_RX]` exactly):
-  - **Static**: `idx=N type=NAME freq=MHz bits=N id=HEX te=N mf=NAME name=BASENAME`
-  - **Rolling**: `idx=N type=NAME freq=MHz bits=N serial=0xN btn=N cnt=N mf=NAME learn=NAME name=BASENAME`
-  - **RAW**: `idx=N type=RAW freq=MHz edges=N name=BASENAME`
-- **`name=`** is the basename of the corresponding `.sub` file (no directory, no extension). For mem entries it is auto-generated as `NNNNN_<Type>_<freq>_<id>` (or `NNNNN_raw_<freqKHz>` for RAW). For SD entries it reflects the current filename and the `Name:` field inside the file (kept in sync by `subghz_rename`).
-- **Empty**: `[SUBGHZ_LIST_END] count=0 source=<mem|sd>`
-- **Completion marker**: `[SUBGHZ_LIST_END] count=N source=<mem|sd>`
-
-### `subghz_info`
-- **Syntax**: `subghz_info <index> <mem|sd>`
-- **Description**: Detailed inspection of one signal. May include a `[SUBGHZ_INFO_RAW]` line with raw timings.
-- **Examples**: `subghz_info 1 mem`, `subghz_info 2 sd`
+### `list_ssids`
+- **Syntax**: `list_ssids`
+- **Description**: Lists SSIDs from `/sdcard/lab/ssids.txt` with 1-based index.
 - **Output**:
 ```
-[SUBGHZ_INFO] idx=1 type=KeeLoq freq=433.85 serial=0x04DEC1 btn=2 cnt=37188 mf=Leopard te=355 learn=MAGIC_XOR_T1 name=00001_KeeLoq_433.85_04DEC1
-[SUBGHZ_INFO_RAW] -12122 377 -643 346 -341 676 ...
-[SUBGHZ_INFO_END]
+1 WiFi1
+2 TestNet
+3 FreeHotspot
 ```
-- **Three line formats can appear** (all suffixed with ` name=BASENAME`):
-```
-[SUBGHZ_INFO] idx=N type=RAW freq=MHz edges=N name=BASENAME
-[SUBGHZ_INFO] idx=N type=NAME freq=MHz serial=0xN btn=N cnt=N mf=NAME te=N learn=NAME name=BASENAME       (rolling)
-[SUBGHZ_INFO] idx=N type=NAME freq=MHz bits=N id=HEX te=N proto=N mf=NAME name=BASENAME                   (static)
-```
-- `[SUBGHZ_INFO_RAW]` is optional (present for RAW or where raw timings were retained). Format: tag followed by space-separated signed microsecond timings.
-- **Failure**: `[SUBGHZ_INFO_ERR] idx=N reason=<not_found|parse_failed> source=<mem|sd>` followed by `[SUBGHZ_INFO_END]`.
-- **Completion marker**: `[SUBGHZ_INFO_END]`
+- **Error outputs**:
+  - `"Failed to initialize SD card: <error>"` (SD init fail)
+  - `"ssids.txt not found on SD card."` (file missing)
+  - `"ssids.txt is empty."` (file empty)
+- **Notes**: No explicit completion marker — output ends after last indexed line.
 
-### `subghz_save`
-- **Syntax**: `subghz_save <mem_idx>` or `subghz_save all`
-- **Description**: Copies a mem-cached signal to SD as `/sdcard/lab/subghz/<name>.sub`. The mem entry is **left in place**. Use `all` to dump the entire mem cache. Filename collisions are refused — call `subghz_delete <sd_idx>` first or `subghz_rename` the mem entry's name (via re-capture / Python tooling) if needed.
-- **Examples**: `subghz_save 1`, `subghz_save all`
-- **Success output**:
+### `add_ssid`
+- **Syntax**: `add_ssid <SSID>`
+- **Description**: Appends a new SSID to `/sdcard/lab/ssids.txt`.
+- **Example**: `add_ssid FreeWiFi`
+- **Output**: `"Added SSID: FreeWiFi"`
+- **Error outputs**:
+  - `"Usage: add_ssid <SSID>"` (no argument)
+  - `"SSID length must be 1-32 characters"` (length invalid)
+  - `"Failed to initialize SD card: <error>"` (SD init fail)
+  - `"Failed to open ssids.txt for writing"` (file open fail)
+- **Notes**: SSID must be 1-32 characters. File is created if it doesn't exist.
+
+### `remove_ssid`
+- **Syntax**: `remove_ssid <index>`
+- **Description**: Removes SSID at given 1-based index from `/sdcard/lab/ssids.txt`. Use `list_ssids` to see indices.
+- **Example**: `remove_ssid 2`
+- **Output**:
 ```
-[SUBGHZ_SAVE] idx=1 file=/sdcard/lab/subghz/00001_KeeLoq_433.85_04DEC1.sub name=00001_KeeLoq_433.85_04DEC1
-[SUBGHZ_SAVE_END] count=1
+Removing SSID 2: TestNet
+SSID removed. 2 SSIDs remaining.
 ```
-- **Bulk output** (`all`): one `[SUBGHZ_SAVE]` line per copied entry, then `[SUBGHZ_SAVE_END] count=N`.
-- **Failure output**: `[SUBGHZ_SAVE_ERR] idx=N reason=<invalid|not_found|collision|write_failed>` followed by `[SUBGHZ_SAVE_END] count=N` (after the loop terminates). On collision the existing file is **not** overwritten.
-- **Prerequisites**: SD card mounted.
-
-### `subghz_rename`
-- **Syntax**: `subghz_rename <sd_idx> <new_name>`
-- **Description**: Renames an SD-library signal: both the filename (`/sdcard/lab/subghz/<old>.sub` → `/sdcard/lab/subghz/<new_name>.sub`) and the `Name:` field inside the `.sub` are updated atomically. Trace files do not exist anymore — this is the only place renaming happens.
-- **`new_name` rules**: 1..63 chars, allowed `[A-Za-z0-9_.-]`, no `/` or spaces. Must not collide with an existing file in `/sdcard/lab/subghz/`.
-- **Examples**: `subghz_rename 2 garageMain`, `subghz_rename 5 frontDoor.v2`
-- **Success output**:
-```
-[SUBGHZ_RENAME] idx=2 old=00002_HOLTEK_433.91_3F0A new=garageMain file=/sdcard/lab/subghz/garageMain.sub source=sd
-```
-- **Failure output**: `[SUBGHZ_RENAME_ERR] idx=N reason=<empty|too_long|bad_char|not_found|collision|sd_error|parse_failed|write_failed> source=sd` (extra fields per reason: `max=N`, `file=...`). On `write_failed` the new file is not committed and the old `.sub` file is left untouched.
-- **Persistence**: persistent — the file on SD survives reboot.
-- **UI note**: `sd_idx` is positional; always re-issue `subghz_list sd` after a rename to refresh the table.
-
-### `subghz_delete`
-- **Syntax**: `subghz_delete <sd_idx>`
-- **Description**: Deletes one signal file from `/sdcard/lab/subghz/`. The mem cache is untouched.
-- **Output**: `[SUBGHZ_DELETE] idx=2 file=/sdcard/lab/subghz/garageMain.sub remaining=N source=sd`
-- **Errors**: `[SUBGHZ_DELETE_ERR] idx=N reason=<not_found|sd_error|unlink_failed> source=sd`.
-- **UI note**: `sd_idx` is positional; re-issue `subghz_list sd` after a delete.
-
-### `subghz_clear`
-- **Syntax**: `subghz_clear`
-- **Description**: Wipes the **mem cache only**. The SD library is intentionally untouched — to delete SD files use `subghz_delete <sd_idx>` per file.
-- **Output**: `[SUBGHZ_CLEAR] done removed=N source=mem` (`N` = number of mem entries that were dropped; `0` if the cache was already empty).
-
-### Flipper-format compatibility (drop-in `.sub` files)
-
-`.sub` files written by a Flipper Zero with `Filetype: Flipper SubGhz` work
-out of the box — copy them into `/sdcard/lab/subghz/` (e.g. over SCP / card
-reader). They show up in `subghz_list sd`, can be inspected with
-`subghz_info <idx> sd`, replayed with `subghz_tx <idx> sd`, renamed and
-deleted like any native entry. Flipper KeeLoq files are decrypted on the fly
-using the `Manufacture:` line when present.
+- **Error outputs**:
+  - `"Usage: remove_ssid <index>"` (no argument)
+  - `"Index must be >= 1"` (invalid index)
+  - `"Failed to initialize SD card: <error>"` (SD init fail)
+  - `"ssids.txt not found on SD card."` (file missing)
+  - `"Index N out of range (1-M)"` (index exceeds count)
+  - `"Failed to open ssids.txt for writing"` (file write fail)
+- **Notes**: Remaining SSIDs are reindexed after removal.
 
 ---
 
-## Diagnostics
+## Compromised Data
 
-### `subghz_protocols`
-- **Syntax**: `subghz_protocols [filter]`
-- **Description**: Lists protocols the firmware can decode/encode. Optional substring filter.
-- **Output**: `[SUBGHZ_PROTO] name=NAME role=<rx|tx|both>` per protocol, `[SUBGHZ_PROTOS_END] count=N` to terminate.
+### `show_pass`
+- **Syntax**: `show_pass [portal|evil]`
+- **Description**: Prints captured passwords from SD card. Default: `portal`.
+- **Evil Twin output** (`show_pass evil`):
+```
+"VMA84A66C-2.4", "Ruletka2022"
+"BRW", "ruletka2022"
+```
+- **Format**: `"SSID", "password"` per line.
+- **Portal output** (`show_pass portal`):
+```
+"AX4", "fb_user=dupa", "password=zupa"
+"MojaSiec", "email=Lalala", "password=ulalala"
+"FH-Raftevold-guest", "password=dupa"
+```
+- **Format**: `"SSID", "field1=val1", "field2=val2", ...` (variable number of fields per line).
 
-### `subghz_keys`
-- **Syntax**: `subghz_keys`
-- **Description**: Dumps loaded manufacturer keys (KeeLoq MF keys etc.).
-- **Output**: `[SUBGHZ_KEY] ...` per key, `[SUBGHZ_KEYS_END]` to terminate.
+---
 
-### `subghz_selftest`
-- **Syntax**: `subghz_selftest`
-- **Description**: Runs internal CC1101 + protocol regression tests. Output is freeform diagnostic; treat as opaque log.
+## WPA-SEC Integration
+
+### `wpasec_key`
+- **Syntax**: `wpasec_key set <key>` or `wpasec_key read`
+- **Description**: Set or read wpa-sec.stanev.org API key.
+- **Read output (key set)**: `"WPA-SEC key: 4c96****"`
+- **Read output (no key)**: `"WPA-SEC key: not set"` followed by `"Get your key at: https://wpa-sec.stanev.org/?get_key"`
+
+### `wpasec_upload`
+- **Syntax**: `wpasec_upload`
+- **Description**: Uploads all `.pcap` handshakes to wpa-sec.stanev.org.
+- **Prerequisite**: WiFi connected, `wpasec_key` set, SD card with handshakes.
+- **Output**: `"Done: %d uploaded, %d duplicate, %d failed"`
+- **Parse**: Look for `"Done:"` and extract three integers.
+
+---
+
+## WiGLE Integration
+
+### `wigle_key`
+- **Syntax**: `wigle_key set <api_name> <api_token>` or `wigle_key set <api_name:api_token>` or `wigle_key read` or `wigle_key clear`
+- **Description**: Set, read, or clear WiGLE API credentials from NVS. If either credential is missing at boot, `/sdcard/lab/wigle.txt` is loaded and persisted to NVS; a complete NVS credential pair takes precedence.
+
+### `wigle_upload`
+- **Syntax**: `wigle_upload` or `wigle_upload [file1 file2 ...]` or `wigle_upload all`
+- **Description**: Uploads wardrive files to WiGLE. No args = upload files not marked `wigle=done` in `/sdcard/lab/wardrives/upload_state.csv`; `all` ignores the local manifest.
+- **Prerequisite**: WiFi connected, `wigle_key` set.
+- **Output markers**: Upload state is also exposed via `upload_state` / `wardrive_files`.
+
+### `wdgwars_key`
+- **Syntax**: `wdgwars_key set <key>` or `wdgwars_key read` or `wdgwars_key clear`
+- **Description**: Set, read, or clear WDGWars API key from NVS. If NVS has no key at boot, `/sdcard/lab/wdgwars.txt` is loaded and persisted to NVS; an existing NVS key takes precedence.
+
+### `wdgwars_upload`
+- **Syntax**: `wdgwars_upload` or `wdgwars_upload [file1 file2 ...]` or `wdgwars_upload all`
+- **Description**: Uploads wardrive files to WDGWars. No args = upload files not marked `wdgwars=done`; `all` ignores the local manifest. Uses the v2 queued CSV upload API and local WigleWifi-1.6 preflight/sanitization. HTTP 429 opens a local circuit breaker/backoff and stops the batch.
+- **Prerequisite**: WiFi connected, `wdgwars_key` set.
+- **Output**: `"Done: U uploaded, S skipped, F failed, R rate_limited"`. A rate-limited stop is a controlled pause and should not be treated as a fatal command error.
+
+### `upload_state`
+- **Syntax**: `upload_state` or `upload_state clear`
+- **Description**: Prints or clears `/sdcard/lab/wardrives/upload_state.csv`. Clearing does not delete wardrive files.
+- **Output**:
+```
+[UPLOAD_STATE] BEGIN
+[UPLOAD_STATE] service=wdgwars filename=w21.log size=123456 hash=8F3A91C2 status=done wifi=900 ble=334 bt=0 bad=0
+[UPLOAD_STATE] END
+```
+Status may be `done`, `failed`, or `rate_limited`.
+
+### `wardrive_files`
+- **Syntax**: `wardrive_files`
+- **Description**: Lists local wardrive files with streaming hash, local row stats, and upload status for WiGLE/WDGWars.
+- **Output**:
+```
+[WARD_FILE] BEGIN
+[WARD_FILE] filename=w21.log size=123456 hash=8F3A91C2 wifi=900 ble=334 bt=0 bad=0 wigle=done wdgwars=pending
+[WARD_FILE] SUMMARY files=1 bytes=123456 rows=1234 devices=1234 wifi=900 ble=334 bt=0 bad=0 wigle_ok=1 wigle_pending=0 wigle_failed=0 wigle_rate_limited=0 wdgwars_ok=0 wdgwars_pending=1 wdgwars_failed=0 wdgwars_rate_limited=0
+[WARD_FILE] END
+```
+Upload status may be `pending`, `done`, `failed`, or `rate_limited`. The `SUMMARY` line appears before `END`; `*_ok` means files marked `done`, and `devices` is an alias for valid data `rows`.
+
+### `wardrive_cleanup`
+- **Syntax**: `wardrive_cleanup <wigle|wdgwars|all> <pending|done|ok|failed|fail|rate_limited> [move [destination]]`
+- **Description**: Dry-run or move wardrive files by local upload status. Matching files are moved to `/sdcard/lab/wardrives/uploaded/<service>/<status>/` only when `move` is passed, or to `/sdcard/lab/wardrives/uploaded/<service>/<status>/<destination>/` when a safe destination token is supplied. `ok` = `done`; `fail` = `failed`. For `all`, both WiGLE and WDGWars statuses must match.
+- **Output**:
+```
+[WARD_CLEANUP] BEGIN service=wdgwars status=done mode=dry-run target=/sdcard/lab/wardrives/uploaded/wdgwars/done
+[WARD_CLEANUP] filename=w21.log size=123456 hash=8F3A91C2 wigle=pending wdgwars=done action=would_move target=/sdcard/lab/wardrives/uploaded/wdgwars/done/w21.log
+[WARD_CLEANUP] SUMMARY scanned=23 matched=4 moved=0 failed=0 dry_run=1
+[WARD_CLEANUP] END
+```
+
+### `wardrive_fix`
+- **Syntax**: `wardrive_fix <file>`
+- **Description**: Creates a soft-fixed `.fixed.log` copy with canonical WigleWifi-1.6 headers and only valid 14-field `WIFI/BLE/BT` rows. Original file is unchanged.
+- **Output**:
+```
+[WARD_FIX] BEGIN
+[WARD_FIX] filename=w21.log output=w21.fixed.log size=120000 hash=41D2A003 kept=11880 dropped=80 wifi=9000 ble=2880 bt=0 bad=80 status=ok
+[WARD_FIX] END
+```
+
+---
+
+## Detection & Monitoring
+
+### `start_zig_recon`
+- **Syntax**: `start_zig_recon [all|11,15,20] [dwell_ms]`
+- **Description**: Starts passive IEEE 802.15.4 recon on native ESP32-C5 radio. Hops channels 11-26 by default and discovers PANs/nodes for Zigbee/Thread-style networks without joining or transmitting.
+- **Examples**:
+  - `start_zig_recon` -- all channels, 250 ms dwell
+  - `start_zig_recon all 500` -- all channels, 500 ms dwell
+  - `start_zig_recon 11,15,20 250` -- selected channels
+- **Output**:
+```
+802.15.4 recon started. channels=11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26 dwell_ms=250 mode=passive. Use 'stop' to end.
+```
+- **Error outputs**:
+  - `FAILED: radio busy (<mode>). Use 'stop' first.`
+  - `dwell_ms must be 50-5000`
+  - `FAILED: zig_recon_start: <esp_err>`
+- **Stop**: Send `stop`.
+- **Notes**: Exclusive radio mode. Refuses to start while Wi-Fi sniffing/wardrive/BLE scan/nRF24 or another active operation owns the radio.
+
+### `zig_recon_status`
+- **Syntax**: `zig_recon_status`
+- **Description**: Prints human-readable recon status and one machine-readable `[ZIG] status` line.
+- **Output**:
+```
+802.15.4 Recon: running
+Channel: 11  Packets: 55  Networks: 4  Dropped: 0
+Hopping: 11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26 dwell=250ms  Mode: passive
+[ZIG] status active=1 channel=11 packets=55 pans=4 nodes=6 dropped=0 dwell_ms=250 channels=0x07fff800
+[ZIG] END
+```
+- **Completion marker**: `"[ZIG] END"`.
+
+### `zig_recon_list`
+- **Syntax**: `zig_recon_list [all]`
+- **Description**: Lists discovered 802.15.4 PANs. Without `all`, hides broadcast PAN `0xFFFF` and prints at most 20 network PANs to avoid UART flooding.
+- **Output**:
+```
+PAN       Proto       Ch                 Nodes  Packets  RSSI  Last
+0x1A62    Zigbee      11,15                  6       48   -63  2s
+[ZIG] pan id=0x1A62 kind=network proto=zigbee confidence=probable channels=0x00008800 nodes=6 packets=48 best_rssi=-63 last_rssi=-67 last_seen_ms=123456 age_ms=2000
+[ZIG] END
+```
+- **Machine fields**: `id`, `kind`, `proto`, `confidence`, `channels`, `nodes`, `packets`, `best_rssi`, `last_rssi`, `last_seen_ms`, `age_ms`.
+- **Notes**: `kind=broadcast` is used for `PAN 0xFFFF`; it appears only with `zig_recon_list all`.
+- **Protocol tokens**: `ieee802154`, `zigbee`, `thread`, `matter_thread`. `matter_thread` is a best-effort passive hint and should be displayed as `Matter/Thread?` unless later evidence confirms it.
+- **Completion marker**: `"[ZIG] END"`.
+
+### `zig_recon_nodes`
+- **Syntax**: `zig_recon_nodes <pan_id|all>`
+- **Description**: Lists nodes seen in a PAN, or all nodes across all PANs for UI sync.
+- **Example**: `zig_recon_nodes 0x1A62`
+- **Output**:
+```
+PAN 0x1A62  Proto: Zigbee  Channels: 11,15  Packets: 48
+ADDR      ROLE         PKTS  RSSI  LAST
+0x0000    Coordinator    42   -63  2s
+[ZIG] node pan=0x1A62 addr_type=short short=0x0000 ext=na role=coordinator packets=42 last_rssi=-63 best_rssi=-58 avg_rssi=-61 lqi=172 sample_count=42 last_channel=11 vendor=na device_hint=na battery=na last_seen_ms=123456 age_ms=2000
+[ZIG] END
+```
+- **Machine fields**: `pan`, `addr_type`, `short`, `ext`, `role`, `packets`, `last_rssi`, `best_rssi`, `avg_rssi`, `lqi`, `sample_count`, `last_channel`, `vendor`, `device_hint`, `battery`, `last_seen_ms`, `age_ms`.
+- **Notes**: `last_seen_ms` is device uptime timestamp in milliseconds; `age_ms` is the age of the observation and is the preferred UI field for "last seen".
+- **Signal notes**: `best_rssi`, `avg_rssi`, `sample_count`, `last_channel`, and `lqi` are passive signal hints, not distance. `vendor`, `device_hint`, and `battery` are `na` unless a later parser can prove them from observed frames.
+- **Locate/track UI guidance**: A UI may pin a node and refresh this line from repeated `zig_recon_nodes all` polling. Use `last_rssi`, `avg_rssi`, `best_rssi`, `lqi`, `sample_count`, `last_channel`, and `age_ms` to show a passive "Locate" panel. Suggested trend labels:
+  - `warming up`: `sample_count < 2`
+  - `closer`: `last_rssi >= avg_rssi + 4`
+  - `farther`: `last_rssi <= avg_rssi - 4`
+  - `steady`: otherwise
+  These labels mean relative signal trend only. Do not display meters or claim physical distance from RSSI.
+- **Locate UX contract**: selecting a node starts passive locate for that node; selecting the same node again stops locate. Selecting another PAN/network or leaving/collapsing the expanded network view must clear the current locate target.
+- **Addressing**: `addr_type=short` means `short` is a real 16-bit node address. `addr_type=ext` means no short address was present; use `ext` as the node key and display address. `short=na` must not be rendered as `0xFFFF`.
+- **Completion marker**: `"[ZIG] END"`.
+
+### `zig_recon_clear`
+- **Syntax**: `zig_recon_clear`
+- **Description**: Clears current 802.15.4 recon counters and discovered PAN/node tables.
+- **Output**:
+```
+[ZIG] cleared
+[ZIG] END
+```
+- **Completion marker**: `"[ZIG] END"`.
+
+### `deauth_detector`
+- **Syntax**: `deauth_detector` or `deauth_detector [index1 index2 ...]`
+- **Description**: Detects deauth frames. No args = all channels; with indices = selected channels.
+- **Continuous output**:
+```
+[DEAUTH] CH: 6 | AP: MyNetwork (AA:BB:CC:DD:EE:FF) | RSSI: -45
+[DEAUTH] CH: 1 | AP: AX3_2.4 (30:AA:E4:3C:3F:64) | RSSI: -72
+```
+- **Parse fields**: `CH:` (int), `AP:` (string until `(`), BSSID (inside parens), `RSSI:` (int).
+- **Stop**: Send `stop`.
+
+### `start_ap_locator`
+- **Syntax**: `start_ap_locator`
+- **Description**: Locks onto the channel of exactly one AP selected with `select_networks`, listens for its beacon frames, and prints RSSI once per second.
+- **Prerequisite**: Exactly one selected network from prior `scan_networks` + `select_networks <index>`.
+- **Continuous output**:
+```
+[AP Locator] CH: 6 | AP: MyNetwork (AA:BB:CC:DD:EE:FF) | RSSI: -47 dBm | beacons: 10
+[AP Locator] CH: 6 | AP: MyNetwork (AA:BB:CC:DD:EE:FF) | RSSI: N/A | no beacon
+```
+- **Notes**:
+  - Uses the selected AP's last scanned primary channel; no channel hopping.
+  - If no matching beacon is seen during the last second, it still prints a status line with `RSSI: N/A | no beacon`.
+  - Conflicts with other monitoring or attack modes that take over WiFi promiscuous mode or channel control.
+- **Stop**: Send `stop`.
+
+### `packet_monitor`
+- **Syntax**: `packet_monitor <channel>`
+- **Description**: Monitors packets per second on a specific channel (1-14).
+- **Stop**: Send `stop`.
+
+### `channel_view`
+- **Syntax**: `channel_view`
+- **Description**: Continuously scans and prints WiFi channel utilization.
+- **Stop**: Send `stop`.
+
+---
+
+## Settings
+
+### `sta_mac`
+- **Syntax** (exact forms; no aliases or extra arguments):
+```
+sta_mac status
+sta_mac set factory
+sta_mac set random
+sta_mac set fixed 02:11:22:33:44:55
+```
+- **Description**: Sets the STA MAC boot policy in NVS. `factory` uses the factory STA address; `random` generates one locally administered unicast address per application boot and retains it through Wi-Fi driver reinitialization; `fixed` uses the specified address. SoftAP, BLE and IEEE 802.15.4 identities are unaffected.
+- **Fixed MAC rule**: Exactly six colon-separated hexadecimal octets, with `first_octet & 3 == 2` (locally administered unicast). Invalid syntax or address returns nonzero and does not change NVS.
+- **Persistence**: A successful `set` checks the NVS commit and reports JSON with `schema_version:1`, `record_type:"sta_mac_result"`, `result:"set"`, and `applies_after_reboot:true`. The new policy takes effect only after an application reboot; `set` does not reboot or change the running MAC. A failed write or commit leaves the configured policy unchanged.
+- **Status**: Read-only JSON with `schema_version:1` and `record_type:"sta_mac_status"` includes `configured_mode`, `boot_mode`, `configured_mac`, `effective_boot_mac`, `active_sta_mac`, `record_health`, `identity_ready` and `pending_reboot`. `configured_mode` is `null` if the saved record is invalid or unreadable; `active_sta_mac` is `null` if the Wi-Fi driver is unavailable; status does not initialize it. Missing NVS selects factory, an invalid/future record falls back to factory without a rewrite, and a read I/O error reports `identity_ready:false` and prevents Wi-Fi startup under an unverified identity.
+- **Admission**: `status` works during active or quarantined radio ownership. `set` is refused busy during either state and uses a short serialized legacy transaction when idle.
+- **WPS**: A temporary WPS session MAC is restored to the effective boot MAC, including the cached random identity. Host tests do not prove on-device radio behavior.
+
+### `channel_time`
+- **Syntax**: `channel_time set <min|max> <ms>` or `channel_time read <min|max>`
+- **Description**: Sets or reads scan dwell time per channel.
+- **Examples**: `channel_time set min 100`, `channel_time set max 300`, `channel_time read min`
+- **Constraints**: 100-1500 ms, min < max.
+
+### `vendor`
+- **Syntax**: `vendor set <on|off>` or `vendor read`
+- **Description**: Enables/disables MAC vendor lookup in scan results.
+
+### `display`
+- **Syntax**: `display set <auto|ssd1306|sh1107|sh1106|unit_lcd>` or `display read`
+- **Description**: Sets or reads display mode for attached OLED/LCD.
+
+### `boot_button`
+- **Syntax**: `boot_button read` | `boot_button list` | `boot_button set <short|long> <command[, command...]>` | `boot_button status <short|long> <on|off>`
+- **Description**: Configures boot button press actions. Multiple commands can be chained with commas, for example `list_sd, select_html 1, start_portal FreeWifi`.
+- **Allowed commands**: `start_blackout`, `start_sniffer_dog`, `channel_view`, `packet_monitor`, `start_sniffer`, `scan_networks`, `start_gps_raw`, `start_wardrive`, `deauth_detector`, `list_sd`, `select_html`, `start_portal`
+
+### `led`
+- **Syntax**: `led set <on|off>` | `led level <1-100>` | `led read`
+- **Description**: Controls status LED brightness.
+
+---
+
+## OTA Updates
+
+### `ota_check`
+- **Syntax**: `ota_check` or `ota_check [latest|<tag>]`
+- **Description**: Checks GitHub for firmware update and applies it.
+- **Prerequisite**: WiFi connected.
+
+### `ota_list`
+- **Syntax**: `ota_list`
+- **Description**: Lists recent GitHub releases (first 5).
+- **Output**: `"OTA[n]: <tag> (main|dev) <date> <title>"`
+- **Prerequisite**: WiFi connected.
+
+### `ota_channel`
+- **Syntax**: `ota_channel` or `ota_channel [main|dev]`
+- **Description**: Gets or sets OTA update channel.
+
+### `ota_info`
+- **Syntax**: `ota_info`
+- **Description**: Shows OTA partition info (boot/running/next partition, APP slot details).
+
+### `ota_boot`
+- **Syntax**: `ota_boot <ota_0|ota_1>`
+- **Description**: Sets boot partition and reboots.
 
 ---
 
 ## System
 
-### `board_name`
-- **Syntax**: `board_name`
-- **Description**: Prints the optional per-device board label burned into eFuse BLK5 / KEY1 during provisioning. This is JanOS provisioning metadata, independent of the SubGHz keystore and independent of the license signature in BLK3 / BLK4.
-- **Provisioning format**: 1..32 ASCII chars matching `^[A-Z0-9_-]{1,32}$` (uppercase letters, digits, dash, underscore). Lowercase letters, spaces, UTF-8, and punctuation outside `_-` are invalid.
-- **Output**:
-```
-board_name=TAB5-CC1101-R2-0042
-board_name=<unset>
-```
-- **Boot output**: the same value is printed once at startup as `[BOARD] name=...`.
+### `stop`
+- **Syntax**: `stop`
+- **Description**: Stops ALL running operations (scans, attacks, sniffers, wardrives, etc.).
+- **Output**: `"Stop command received - stopping all operations..."`
+- **Notes**: This is the universal cancel command. Always send before starting a new operation if one might be running.
 
-### `subghz_stop`
-- **Syntax**: `subghz_stop`
-- **Description**: Universal stop — terminates whatever SubGHz task is currently running (`subghz_rx`, `subghz_freq_analyzer`, `subghz_scanner`, `subghz_weather`, `subghz_jam`) and puts CC1101 into idle. Always send before starting a new continuous task.
-- **Output**:
-```
-[subghz] <Task name> task stopped
-SubGHz operations stopped.
-```
+### `reboot`
+- **Syntax**: `reboot`
+- **Description**: Reboots the ESP32C5 device.
+
+### `ping`
+- **Syntax**: `ping`
+- **Description**: Connectivity test.
+- **Output**: `"pong"`
+- **Notes**: Use to verify UART connection is alive.
+
+### `download`
+- **Syntax**: `download`
+- **Description**: Reboots into ROM download (UART flashing) mode.
+
+### `version`
+- **Syntax**: `version`
+- **Description**: Prints the current JanOS firmware version.
+- **Output**: `"JanOS version: X.Y.Z"`
+- **Notes**: Use to check which firmware version is running on the device.
+
+### `help`
+- **Syntax**: `help` or `help <command>`
+- **Description**: Lists all commands or shows help for a specific command.
 
 ---
 
-## Quick parsing matrix (cheat sheet)
+## nRF24 Jammer
 
-| Tag prefix | Emitted by | Continuous? | Parse priority |
-|------------|-----------|-------------|----------------|
-| `[SUBGHZ_FA_START]`     | `subghz_freq_analyzer` start (includes `single`/`fast`/`tmo`) | one-shot     | High — UI mode change |
-| `[SUBGHZ_FA] freq=`     | analyzer hit                              | continuous   | High — waterfall + last hit |
-| `[SUBGHZ_FA] hunt`      | hunt-mode capture window state            | per-hit      | High — spinner state |
-| `[SUBGHZ_FA] silent`    | sample-hold expired                       | per-hit      | Medium — idle indicator |
-| `[SUBGHZ_SCAN_START]`   | `subghz_scanner` start                    | one-shot     | High — UI mode change |
-| `[SUBGHZ_SCAN_HIT]`     | scanner hit on a frequency                | continuous   | High — append/highlight freq row |
-| `[SUBGHZ_SCAN_PASS]`    | end of one full pass over the freq list   | per-pass     | Medium — header counter |
-| `[SUBGHZ_WEATHER_START]`| `subghz_weather` start                    | one-shot     | High — UI mode change |
-| `[SUBGHZ_WEATHER]`      | decoded weather sensor report             | per sensor   | Critical — append/update sensor row |
-| `[SUBGHZ_RSSI]`         | `subghz_rx`                               | ~1 Hz        | High — waterfall |
-| `[REPLAY_SEG]`          | `subghz_rx`, hunt decode                  | per signal   | Low — debug; GUI uses `[SUBGHZ_RX]` |
-| `[SUBGHZ_RX]`           | `subghz_rx`, `subghz_freq_analyzer hunt`  | per signal   | Critical — append to list |
-| `[SUBGHZ_RX_DUP]`       | `subghz_rx`, `subghz_freq_analyzer hunt`  | per signal   | Medium — flash existing row |
-| `[SUBGHZ_RAW]`          | raw fallback or raw mode                  | per signal   | Critical — append to list |
-| `[SUBGHZ_RX_DROP]`      | `subghz_rx` noise gate                    | per drop     | Low — optional debug pane |
-| `[SUBGHZ_LIST]`         | `subghz_list <mem\|sd>`                   | per row      | Critical — table fill |
-| `[SUBGHZ_LIST_END]`     | `subghz_list <mem\|sd>` (carries `source=`) | one-shot   | High — terminator |
-| `[SUBGHZ_INFO]`         | `subghz_info <idx> <mem\|sd>`             | one-shot     | High — detail panel |
-| `[SUBGHZ_INFO_RAW]`     | `subghz_info` (RAW or partial)            | one-shot     | Medium — raw timings |
-| `[SUBGHZ_INFO_END]`     | `subghz_info`                             | one-shot     | High — terminator |
-| `[SUBGHZ_INFO_ERR]`     | `subghz_info` failure                     | one-shot     | High — show error toast |
-| `[SUBGHZ_SAVE]`         | `subghz_save` (per saved entry)           | per call     | High — refresh sd list |
-| `[SUBGHZ_SAVE_END]`     | `subghz_save` (carries `count=`)          | one-shot     | High — terminator |
-| `[SUBGHZ_SAVE_ERR]`     | `subghz_save` failure                     | per entry    | High — show error toast |
-| `[SUBGHZ_DELETE]`       | `subghz_delete` success (carries `source=sd`) | one-shot | High — refresh sd list |
-| `[SUBGHZ_DELETE_ERR]`   | `subghz_delete` failure                   | one-shot     | High — show error toast |
-| `[SUBGHZ_CLEAR]`        | `subghz_clear` (carries `source=mem`)     | one-shot     | High — clear mem list |
-| `[SUBGHZ_TX]`           | `subghz_tx` (carries `source=`)           | one-shot     | High — toast/result |
-| `[SUBGHZ_FREQ]`         | `subghz_freq` get/set                     | one-shot     | High — confirm freq |
-| `[SUBGHZ_FREQ_CORRECTION]` | `subghz_set_freq_correction` / `subghz_get_freq_correction` | one-shot | Medium — show NVS-persisted xtal trim (MHz, signed, 2 decimals) |
-| `[SUBGHZ_STATUS]`       | `subghz_status`                           | one-shot     | High — status bar |
-| `[BOARD] name=`         | boot                                      | one-shot     | Medium — provisioning label |
-| `board_name=`           | `board_name`                              | one-shot     | Medium — provisioning label |
-| `[SUBGHZ_RENAME]`       | `subghz_rename` success (carries `source=sd`) | per call | High — refresh sd list row |
-| `[SUBGHZ_RENAME_ERR]`   | `subghz_rename` failure                   | per call     | High — show error toast |
-| `[KAT_RX]`              | rolling-code dispatcher                   | per signal   | High — decoded panel |
-| `[KL_DEC]`              | KeeLoq decoder                            | per signal   | Medium — decrypted detail |
-| `[KL_GROUND]`           | KeeLoq dedup verifier                     | per signal   | Low — verbose |
-| `[KAT_DBG]`             | rolling-code decode failure trace         | per signal   | Low — verbose |
-| `[subghz]` (lowercase)  | firmware diagnostic                       | continuous   | None — opaque log |
-| `SubGHz: key saved …`   | legacy human line after auto-save         | per signal   | None — superseded by `[SUBGHZ_RX]` |
+Requires an external nRF24L01+ module wired to the ESP32C5. It shares the SD card's SPI2 bus (SCK=GPIO6, MOSI=GPIO7, MISO=GPIO2) and uses dedicated CSN=GPIO3 and CE=GPIO4 (the control lines previously used for a CC1101). A clean 3.3 V supply (e.g. AMS1117 + 100 uF capacitor) is recommended for the PA+LNA variant.
+
+### `init_nrf24`
+- **Syntax**: `init_nrf24`
+- **Description**: Initializes the SPI device and probes the single nRF24 module (writes/reads back the RF_CH register). Run this once before `start_jammer24`. Safe to re-run.
+- **Output (detected)**: `"[NRF24] detected (init OK) - SCK=6 MOSI=7 MISO=2 CS=3 CE=4"`
+- **Output (not detected)**: `"[NRF24] not detected - check wiring/power (3.3V + cap)"`
+- **Completion marker**: any line containing `"[NRF24]"`.
+
+### `start_jammer24`
+- **Syntax**: `start_jammer24 [ble|bt|wifi|drone|all]`
+- **Description**: Starts the nRF24 jammer. The band argument is optional and defaults to `all` (full 2.4 GHz constant-carrier sweep, channels 0-125). Bands:
+  - `ble` - BLE advertising channels (2/26/80), packet spam.
+  - `bt` - Bluetooth channel list, constant carrier.
+  - `wifi` - sweep across all WiFi channels, packet spam.
+  - `drone` - constant-carrier sweep 0-125 (RC / drone 2.4 GHz).
+  - `all` - full 2.4 GHz constant-carrier sweep 0-125 (default).
+- **Output (success)**: `"nRF24 jammer started (band=<name>). Use 'stop' to end."`
+- **Output (failure)**: `"[NRF24] failed to start - run init_nrf24 first, or jammer already running"` or `"[NRF24] unknown band '<arg>' (use ble|bt|wifi|drone|all)"`
+- **Prerequisite**: `init_nrf24` must report the module as detected.
+- **Completion marker**: `"nRF24 jammer started"`.
+- **Notes**: Stopped with `stop`. While jamming, WiFi throughput on the ESP32C5 will degrade until stopped.
+
+### `stop`
+- The universal `stop` command (see System) also halts an active nRF24 jammer and returns the radio to idle.

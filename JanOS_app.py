@@ -619,6 +619,7 @@ class UI:
             f"{Colors.GREEN}1){Colors.NC} BLE scan",
             f"{Colors.GREEN}2){Colors.NC} AirTag/SmartTag scan",
             f"{Colors.GREEN}3){Colors.NC} Anti-surveillance",
+            f"{Colors.GREEN}4){Colors.NC} BLE spam",
             "",
             f"{Colors.GRAY}0){Colors.NC} Back to main menu",
         ]
@@ -4056,6 +4057,12 @@ class JanOS:
                     self.start_airtag_scan()
                 elif choice == '3':
                     self.start_antisurveillance()
+                elif choice == '4':
+                    spec = next(
+                        item for item in COMMAND_GROUPS["WPS and Bluetooth"]
+                        if item.command == "start_blespam"
+                    )
+                    self.execute_command_spec(spec)
                 elif choice == '0':
                     return
                 else:
@@ -5154,6 +5161,342 @@ class JanOS:
                 time.sleep(1)
                 return
     
+    def probe_projectzero_capabilities(self, force: bool = False) -> None:
+        """Discover firmware version and the live command registry."""
+        if self.capabilities_probed and not force:
+            return
+        self.available_commands.clear()
+        self.serial_mgr.clear_input()
+        self.serial_mgr.send_command("version")
+        version_lines = self.serial_mgr.read_until_silence(max_wait=3, idle_timeout=0.5)
+        for line in version_lines:
+            match = re.search(r"(?:JanOS\s+version:|APP_MAIN START \(v)\s*([0-9][^ )]*)", line, re.I)
+            if match:
+                self.firmware_version = match.group(1)
+                break
+        self.serial_mgr.send_command("help")
+        help_lines = self.serial_mgr.read_until_silence(max_wait=8, idle_timeout=0.8)
+        known = {spec.command for specs in COMMAND_GROUPS.values() for spec in specs}
+        known.update(FILE_COMMANDS)
+        known.update({
+            "help", "version", "stop", "reboot", "ping", "scan_networks",
+            "show_scan_results", "inspect_network", "select_networks",
+            "unselect_networks", "start_sniffer", "start_sniffer_noscan",
+            "show_sniffer_results", "show_sniffer_results_vendor", "show_probes",
+            "show_probes_vendor", "list_probes", "list_probes_vendor",
+            "clear_sniffer_results", "start_sniffer_dog", "deauth_detector",
+            "start_ap_locator", "packet_monitor", "channel_view", "start_deauth",
+            "start_evil_twin", "sae_overflow", "start_handshake", "start_blackout",
+            "start_beacon_spam_ssids", "start_portal", "start_pcap", "wifi_connect",
+            "list_hosts", "arp_ban", "scan_bt", "scan_airtag", "gps_set",
+            "set_gps_position", "set_gps_position_cap", "start_gps_raw",
+            "start_wardrive", "start_wardrive_promisc", "start_wardrive_promisc_trace",
+            "get_wardrive_config", "set_wardrive_bands", "set_wardrive_channels",
+            "set_wardrive_rssi_delta", "set_wardrive_memcap", "set_wardrive_cooldown",
+            "wardrive_blacklist", "start_antisurveillance", "set_antisurv_sensitivity",
+            "list_sd", "sd_status", "list_dir", "file_delete", "select_html",
+            "list_ssid", "list_ssids", "add_ssid", "remove_ssid", "show_pass",
+            "vendor", "display", "led", "channel_time",
+        })
+        for line in help_lines:
+            for token in re.findall(r"\b[a-z][a-z0-9_]{1,}\b", strip_ansi(line).lower()):
+                if token in known:
+                    self.available_commands.add(token)
+        self.capabilities_probed = True
+
+    def execute_command_spec(self, spec: CommandSpec) -> None:
+        """Prompt for a catalog command and dispatch it using the right mode."""
+        if self.available_commands and spec.command not in self.available_commands:
+            print(f"{Colors.YELLOW}[!] {spec.command} was not reported by this firmware.{Colors.NC}")
+            if input("Send it anyway? [y/N]: ").strip().lower() not in ("y", "yes"):
+                return
+        suffix = ""
+        if spec.arguments:
+            suffix = input(f"Arguments ({spec.arguments}; Enter = none): ").strip()
+        command = f"{spec.command} {suffix}".strip()
+        if spec.confirm:
+            if input(f"Send '{command}'? [y/N]: ").strip().lower() not in ("y", "yes"):
+                return
+        action = suffix.split()[0].lower() if suffix else ""
+        continuous = spec.command.startswith("start_") or (
+            spec.command in {"wps", "jwps", "capture_gateway", "crack_worker"}
+            and action == "start"
+        )
+        if continuous:
+            self.monitor_command(command, spec.label.upper())
+        else:
+            max_wait = 120 if spec.stream else 15
+            self.run_simple_command(command, spec.label.upper(), max_wait=max_wait, idle_timeout=1.0)
+
+    def projectzero_command_group_menu(self, group_name: str) -> None:
+        specs = COMMAND_GROUPS[group_name]
+        while True:
+            clear_screen()
+            lines = []
+            for index, spec in enumerate(specs, 1):
+                unsupported = self.available_commands and spec.command not in self.available_commands
+                mark = f" {Colors.YELLOW}[not reported]{Colors.NC}" if unsupported else ""
+                lines.append(f"{Colors.GREEN}{index}){Colors.NC} {spec.label} ({spec.command}){mark}")
+            lines.extend(("", f"{Colors.GRAY}0){Colors.NC} Back"))
+            UI.print_compact_box(group_name.upper(), lines, Colors.CYAN, width=88)
+            try:
+                choice = input("Select option: ").strip()
+            except (KeyboardInterrupt, EOFError):
+                return
+            if choice == "0":
+                return
+            if choice.isdigit() and 1 <= int(choice) <= len(specs):
+                self.execute_command_spec(specs[int(choice) - 1])
+            else:
+                print(f"{Colors.RED}Invalid option{Colors.NC}")
+                time.sleep(1)
+
+    @staticmethod
+    def _fs_path64(path: str) -> str:
+        raw = path.encode("cp437")
+        return base64.b64encode(raw).decode("ascii")
+
+    def _receive_ft_file(self, command: str, local_path: str) -> None:
+        """Receive JanOS FTB/1 download, ACKing every verified block."""
+        port = self.serial_mgr.serial_conn
+        if not port:
+            raise RuntimeError("Serial connection not established")
+        self.serial_mgr.clear_input()
+        self.serial_mgr.send_command(command)
+        header_lines = []
+        deadline = time.time() + 10
+        while time.time() < deadline:
+            raw = port.readline()
+            if not raw:
+                continue
+            line = raw.decode("utf-8", errors="replace").strip()
+            if line:
+                header_lines.append(line)
+            if line in ("[FT] END", "[FS/1] END") and any("[FT] begin" in item for item in header_lines):
+                break
+            if " error " in line.lower() or "ERROR code=" in line:
+                raise RuntimeError(line)
+        begin = next((line for line in header_lines if "[FT] begin" in line), "")
+        values = dict(re.findall(r"(size|offset|bsize|prefix_crc|ack_ms)=([0-9A-Fa-f]+)", begin))
+        if not all(key in values for key in ("size", "offset", "bsize")):
+            raise RuntimeError("JanOS did not start an FTB/1 transfer")
+        total = int(values["size"])
+        offset = int(values["offset"])
+        block_size = int(values["bsize"])
+        timeout = max(8.0, int(values.get("ack_ms", "8000")) / 1000.0)
+        part_path = local_path + ".part"
+        mode = "r+b" if offset and os.path.exists(part_path) else "wb"
+        received = offset
+        crc = 0
+        if offset:
+            with open(part_path, "rb") as existing:
+                prefix = existing.read(offset)
+            if len(prefix) != offset:
+                raise RuntimeError("Local partial file is shorter than JanOS offset")
+            crc = zlib.crc32(prefix)
+        with open(part_path, mode) as output:
+            output.seek(offset)
+            expected_index = 0
+            while received < total:
+                frame = self.serial_mgr.read_exact(16, timeout)
+                if frame[:4] != b"FTB\x01":
+                    port.write(b"\x18")
+                    raise RuntimeError("Invalid FTB/1 frame header")
+                index, length, expected_crc = struct.unpack("<III", frame[4:16])
+                if index != expected_index or length > block_size or received + length > total:
+                    port.write(b"\x18")
+                    raise RuntimeError("Invalid FTB/1 block metadata")
+                payload = self.serial_mgr.read_exact(length, timeout)
+                if zlib.crc32(payload) & 0xFFFFFFFF != expected_crc:
+                    port.write(b"\x15")
+                    continue
+                output.write(payload)
+                crc = zlib.crc32(payload, crc)
+                received += length
+                expected_index += 1
+                port.write(b"\x06")
+                port.flush()
+                print(f"\r{received}/{total} bytes ({received * 100 // max(total, 1)}%)", end="", flush=True)
+        print()
+        terminal = self.serial_mgr.read_until_silence(max_wait=10, idle_timeout=1.0)
+        done = next((line for line in terminal if "[FT] done" in line), "")
+        match = re.search(r"crc32=([0-9a-fA-F]{8})", done)
+        if match and (crc & 0xFFFFFFFF) != int(match.group(1), 16):
+            raise RuntimeError("Whole-file CRC32 mismatch")
+        os.replace(part_path, local_path)
+        print(f"{Colors.GREEN}[+] Saved {received} bytes to {local_path}{Colors.NC}")
+
+    @staticmethod
+    def _validate_ack32(frame: bytes, index: int, offset: int) -> None:
+        if len(frame) != 32 or frame[:4] != b"FTA\x01":
+            raise RuntimeError("Invalid FTA/1 ACK frame")
+        ack_index = struct.unpack("<I", frame[4:8])[0]
+        status = frame[8]
+        committed = struct.unpack("<Q", frame[12:20])[0]
+        expected_crc = struct.unpack("<I", frame[20:24])[0]
+        if zlib.crc32(frame[:20]) & 0xFFFFFFFF != expected_crc:
+            raise RuntimeError("Invalid FTA/1 ACK CRC")
+        if status != 0x06 or ack_index != index or committed != offset:
+            raise RuntimeError(f"Upload rejected (status=0x{status:02x}, index={ack_index}, offset={committed})")
+
+    def fs_upload(self, local_path: str, remote_path: str, replace: bool) -> None:
+        """Upload one file through the transactional FS/1 + FTB/1 protocol."""
+        port = self.serial_mgr.serial_conn
+        if not port:
+            raise RuntimeError("Serial connection not established")
+        with open(local_path, "rb") as source:
+            data = source.read()
+        file_crc = zlib.crc32(data) & 0xFFFFFFFF
+        encoded = self._fs_path64(remote_path)
+        command = f"fs put {encoded} {len(data)} {file_crc:08X}" + (" replace" if replace else "")
+        self.serial_mgr.clear_input()
+        self.serial_mgr.send_command(command)
+        ready_lines = []
+        deadline = time.time() + 10
+        while time.time() < deadline:
+            raw = port.readline()
+            if not raw:
+                continue
+            line = raw.decode("utf-8", errors="replace").strip()
+            if line:
+                ready_lines.append(line)
+            if line == "[FS/1] END":
+                break
+        ready = next((line for line in ready_lines if "[FS/1] READY" in line), "")
+        if not ready:
+            raise RuntimeError(next((line for line in ready_lines if "ERROR" in line), "FS/1 upload not accepted"))
+        fields = dict(re.findall(r"(bsize|rx_ms|prepare_ms)=([0-9]+)", ready))
+        block_size = int(fields.get("bsize", "1024"))
+        timeout = max(8.0, int(fields.get("rx_ms", "8000")) / 1000.0 + 2)
+        committed = 0
+        index = 0
+        while committed < len(data):
+            payload = data[committed:committed + block_size]
+            frame = b"FTB\x01" + struct.pack("<III", index, len(payload), zlib.crc32(payload) & 0xFFFFFFFF)
+            port.write(frame + payload)
+            port.flush()
+            committed += len(payload)
+            ack = self.serial_mgr.read_exact(32, timeout)
+            self._validate_ack32(ack, index, committed)
+            index += 1
+            print(f"\r{committed}/{len(data)} bytes ({committed * 100 // max(len(data), 1)}%)", end="", flush=True)
+        fin = b"FTB\x01" + struct.pack("<III", index, 0, 0)
+        port.write(fin)
+        port.flush()
+        self._validate_ack32(self.serial_mgr.read_exact(32, timeout), index, len(data))
+        port.write(b"\x18")  # End FIN_LINGER after the successful publish.
+        port.flush()
+        print()
+        lines = self.serial_mgr.read_until_silence(max_wait=10, idle_timeout=1.0)
+        if not any("[FS/1] DONE" in line for line in lines):
+            raise RuntimeError("Upload finished without FS/1 DONE")
+        print(f"{Colors.GREEN}[+] Uploaded {local_path} -> /sdcard/lab/{remote_path}{Colors.NC}")
+
+    def switch_uart_baud(self) -> None:
+        allowed = (115200, 230400, 460800, 921600, 1000000, 1500000, 2000000, 3000000, 4000000)
+        raw = input(f"Baud {allowed}: ").strip()
+        if not raw.isdigit() or int(raw) not in allowed:
+            print(f"{Colors.RED}Unsupported baud rate{Colors.NC}")
+            return
+        rate = int(raw)
+        self.serial_mgr.clear_input()
+        self.serial_mgr.send_command(f"uart_baud {rate}")
+        lines = self.serial_mgr.read_until_silence(max_wait=3, idle_timeout=0.4)
+        if not any("[UARTB] switching" in line for line in lines):
+            print("\n".join(lines) or "No response")
+            return
+        self.serial_mgr.set_baud_rate(rate)
+        time.sleep(0.1)
+        self.serial_mgr.send_command("uart_baud_confirm")
+        lines = self.serial_mgr.read_until_silence(max_wait=3, idle_timeout=0.5)
+        if any("[UARTB] confirmed" in line for line in lines):
+            print(f"{Colors.GREEN}[+] UART switched to {rate}{Colors.NC}")
+        else:
+            print(f"{Colors.YELLOW}[!] Confirmation not received; board will revert to 115200.{Colors.NC}")
+            time.sleep(10.5)
+            self.serial_mgr.set_baud_rate(115200)
+
+    def projectzero_file_menu(self) -> None:
+        while True:
+            lines = [
+                f"{Colors.GREEN}1){Colors.NC} FS/1 capabilities",
+                f"{Colors.GREEN}2){Colors.NC} List directory",
+                f"{Colors.GREEN}3){Colors.NC} Download file (FS/1)",
+                f"{Colors.GREEN}4){Colors.NC} Upload file (FS/1)",
+                f"{Colors.GREEN}5){Colors.NC} Delete file / empty directory",
+                f"{Colors.GREEN}6){Colors.NC} Clean abandoned .fs-part",
+                f"{Colors.GREEN}7){Colors.NC} Legacy absolute-path download",
+                f"{Colors.GREEN}8){Colors.NC} Change UART baud",
+                f"{Colors.GREEN}9){Colors.NC} UART baud status", "",
+                f"{Colors.GRAY}0){Colors.NC} Back",
+            ]
+            UI.print_compact_box("PROJECTZERO FILE MANAGER", lines, Colors.CYAN, width=72)
+            try:
+                choice = input("Select option: ").strip()
+                if choice == "0": return
+                if choice == "1": self.run_simple_command("fs hello", "FS/1", 5, 0.5)
+                elif choice == "2":
+                    path = input("Remote directory relative to /sdcard/lab (Enter = root): ").strip()
+                    encoded = "-" if not path else self._fs_path64(path)
+                    self.run_simple_command(f"fs ls {encoded}", "FS/1 LIST", 10, 0.8)
+                elif choice == "3":
+                    remote = input("Remote path relative to /sdcard/lab: ").strip()
+                    local = input("Local destination: ").strip()
+                    if remote and local: self._receive_ft_file(f"fs get {self._fs_path64(remote)}", local)
+                elif choice == "4":
+                    local = input("Local source file: ").strip()
+                    remote = input("Remote path relative to /sdcard/lab: ").strip()
+                    replace = input("Replace existing file? [y/N]: ").strip().lower() in ("y", "yes")
+                    if local and remote: self.fs_upload(local, remote, replace)
+                elif choice in ("5", "6"):
+                    remote = input("Remote relative path: ").strip()
+                    if remote:
+                        action = "rm" if choice == "5" else "cleanup"
+                        self.run_simple_command(f"fs {action} {self._fs_path64(remote)}", "FS/1", 10, 0.8)
+                elif choice == "7":
+                    remote = input("Absolute remote path: ").strip()
+                    local = input("Local destination: ").strip()
+                    if remote and local: self._receive_ft_file(f'send_file "{remote}"', local)
+                elif choice == "8": self.switch_uart_baud()
+                elif choice == "9": self.run_simple_command("uart_baud_status", "UART BAUD", 5, 0.5)
+                else: print(f"{Colors.RED}Invalid option{Colors.NC}")
+            except (OSError, ValueError, RuntimeError, TimeoutError) as error:
+                print(f"{Colors.RED}[!] {error}{Colors.NC}")
+            except (KeyboardInterrupt, EOFError):
+                return
+            input("Press Enter to continue...")
+
+    def projectzero_menu(self) -> None:
+        """Complete current projectZero command surface."""
+        self.probe_projectzero_capabilities()
+        groups = list(COMMAND_GROUPS)
+        while True:
+            clear_screen()
+            status = f"firmware {self.firmware_version}; {len(self.available_commands)} commands detected"
+            lines = [f"{Colors.GRAY}{status}{Colors.NC}", ""]
+            lines.extend(f"{Colors.GREEN}{i}){Colors.NC} {name}" for i, name in enumerate(groups, 1))
+            file_index = len(groups) + 1
+            lines.extend((
+                f"{Colors.GREEN}{file_index}){Colors.NC} SD / binary file manager",
+                f"{Colors.GREEN}r){Colors.NC} Refresh firmware capabilities",
+                f"{Colors.GREEN}x){Colors.NC} Raw projectZero command", "",
+                f"{Colors.GRAY}0){Colors.NC} Back",
+            ))
+            UI.print_compact_box("PROJECTZERO FULL CONTROL", lines, Colors.CYAN, width=72)
+            try:
+                choice = input("Select option: ").strip().lower()
+            except (KeyboardInterrupt, EOFError):
+                return
+            if choice == "0": return
+            if choice == "r": self.probe_projectzero_capabilities(force=True)
+            elif choice == "x": self.system_raw_command()
+            elif choice.isdigit() and 1 <= int(choice) <= len(groups):
+                self.projectzero_command_group_menu(groups[int(choice) - 1])
+            elif choice == str(file_index): self.projectzero_file_menu()
+            else:
+                print(f"{Colors.RED}Invalid option{Colors.NC}")
+                time.sleep(1)
+
     def system_menu(self) -> None:
         """Settings submenu."""
         while True:
@@ -5279,6 +5622,8 @@ class JanOS:
                     self.subghz_menu()
                 elif choice == '8':
                     self.system_menu()
+                elif choice == '9':
+                    self.projectzero_menu()
                 elif choice in ['0', 'q', 'Q']:
                     if self.attack_running or self.blackout_running or self.sniffer_running or self.sae_overflow_running or self.handshake_running or self.portal_running or self.evil_twin_running or self.wardrive_running or self.beacon_spam_running or self.arp_running or self.mitm_running:
                         print()
