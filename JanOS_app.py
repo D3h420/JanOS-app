@@ -24,8 +24,13 @@ import tempfile
 import re
 import readline  # For better input handling
 import unicodedata
+import base64
+import struct
+import zlib
 from datetime import datetime
 from typing import List, Dict, Tuple, Optional, Any
+
+from projectzero_commands import COMMAND_GROUPS, FILE_COMMANDS, CommandSpec
 
 # ============================================================================
 # Configuration
@@ -432,6 +437,7 @@ class UI:
             f"{Colors.GREEN}6){Colors.NC} Bluetooth",
             f"{Colors.GREEN}7){Colors.NC} SubGHz",
             f"{Colors.GREEN}8){Colors.NC} Settings",
+            f"{Colors.GREEN}9){Colors.NC} projectZero full control",
             "",
             f"{Colors.GRAY}0){Colors.NC} Exit",
         ]
@@ -873,6 +879,27 @@ class SerialManager:
         except Exception as e:
             print(f"{Colors.RED}Error sending command: {e}{Colors.NC}")
 
+    def set_baud_rate(self, baud_rate: int) -> None:
+        """Switch the host UART rate after JanOS accepted ``uart_baud``."""
+        if not self.serial_conn:
+            raise RuntimeError("Serial connection not established")
+        self.serial_conn.baudrate = baud_rate
+        self.baud_rate = baud_rate
+
+    def read_exact(self, size: int, timeout: float) -> bytes:
+        """Read exactly ``size`` raw bytes or raise a timeout."""
+        if not self.serial_conn:
+            raise RuntimeError("Serial connection not established")
+        deadline = time.time() + timeout
+        data = bytearray()
+        while len(data) < size and time.time() < deadline:
+            chunk = self.serial_conn.read(size - len(data))
+            if chunk:
+                data.extend(chunk)
+        if len(data) != size:
+            raise TimeoutError(f"UART timeout ({len(data)}/{size} bytes)")
+        return bytes(data)
+
     def clear_input(self) -> None:
         """Drop stale UART input so next read belongs to next command."""
         if not self.serial_conn:
@@ -1157,6 +1184,9 @@ class JanOS:
         self.last_wardrive_line = ""
         self.os_type = detect_os()
         self.last_sniffer_line = ""
+        self.firmware_version = "unknown"
+        self.available_commands = set()
+        self.capabilities_probed = False
         
         if self.os_type == 'unknown':
             print(f"{Colors.RED}Error: Unsupported operating system{Colors.NC}")
