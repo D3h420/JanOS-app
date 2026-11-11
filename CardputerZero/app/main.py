@@ -69,7 +69,7 @@ def run_desktop(controller, *, snapshot: Path | None = None) -> int:
 
     renderer = Renderer()
     root = tk.Tk()
-    root.title("JanOS / Cardputer Zero [SIMULATED]")
+    root.title("JanOS / Cardputer Zero")
     root.resizable(False, False)
     label = tk.Label(root, bg="black")
     label.pack()
@@ -106,7 +106,10 @@ def run_desktop(controller, *, snapshot: Path | None = None) -> int:
             root.after(45, draw_loop)
 
     root.bind("<KeyPress>", key_event)
-    root.protocol("WM_DELETE_WINDOW", lambda: controller.handle("HOME", ""))
+    def close_window() -> None:
+        controller.quit_requested = True
+
+    root.protocol("WM_DELETE_WINDOW", close_window)
     root.after(10, draw_loop)
     root.mainloop()
     controller.close()
@@ -115,14 +118,15 @@ def run_desktop(controller, *, snapshot: Path | None = None) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="JanOS controller for M5Stack Cardputer Zero")
-    parser.add_argument("--dev", action="store_true", help="run the labelled desktop simulator")
+    parser.add_argument("--dev", action="store_true", help="render the Cardputer UI in a desktop window")
+    parser.add_argument("--demo", action="store_true", help="simulate JanOS instead of opening a UART")
     parser.add_argument("--snapshot", type=Path, help="write the latest simulator frame to PNG")
     parser.add_argument("--device", help="MonsterC5 UART device (auto-detected when omitted)")
     args = parser.parse_args(argv)
     _prepare_source_path()
     from .controller import Controller
 
-    controller = Controller(device=args.device, demo=args.dev)
+    controller = Controller(device=args.device, demo=args.demo)
     try:
         return run_desktop(controller, snapshot=args.snapshot) if args.dev else run_device(controller)
     except Exception as error:

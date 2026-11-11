@@ -40,6 +40,7 @@ class CommandSyncTests(unittest.TestCase):
         manifest = json.loads(GENERATED.read_text(encoding="utf-8"))
         self.assertRegex(manifest["fingerprint"], r"^sha256:[0-9a-f]{64}$")
         self.assertIn("JanOS_app.py", manifest["source_fingerprints"])
+        self.assertIn("janos_core.py", manifest["source_fingerprints"])
         self.assertGreaterEqual(len(manifest["commands"]), 100)
         self.assertIsInstance(manifest["manual_porting"], list)
         self.assertTrue(

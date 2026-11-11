@@ -1,14 +1,18 @@
 import struct
+import tempfile
 import unittest
 import zlib
+from pathlib import Path
 
 from janos_core import (
+    crc32_file,
     fs_path64,
     make_ftb_frame,
     parse_firmware_version,
     parse_ftb_header,
     parse_help_commands,
     parse_network_line,
+    parse_fta_frame,
     validate_fta_frame,
 )
 
@@ -40,6 +44,15 @@ class JanOSCoreTests(unittest.TestCase):
         ack[12:20] = struct.pack("<Q", 5)
         ack[20:24] = struct.pack("<I", zlib.crc32(ack[:20]) & 0xFFFFFFFF)
         validate_fta_frame(bytes(ack), 3, 5)
+        self.assertEqual((3, 0x06, 5), parse_fta_frame(bytes(ack)))
+
+    def test_file_crc_is_streaming_and_supports_prefixes(self):
+        payload = b"JanOS\0" * 1000
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "wordlist.bin"
+            path.write_bytes(payload)
+            self.assertEqual((len(payload), zlib.crc32(payload) & 0xFFFFFFFF), crc32_file(path))
+            self.assertEqual((23, zlib.crc32(payload[:23]) & 0xFFFFFFFF), crc32_file(path, limit=23))
 
 
 if __name__ == "__main__":

@@ -42,6 +42,16 @@ An explicit device path is still available as an override:
 python3 JanOS_app.py /dev/cu.usbserial-230
 ```
 
+## M5Stack Cardputer Zero
+
+The repository also contains a complete native ARM64 APPLaunch application for
+M5Stack Cardputer Zero. It uses the same `janos_core.py` protocol code and a
+command catalog generated from the canonical Python controller, so it is not a
+separately maintained implementation. See
+[`CardputerZero/README.md`](CardputerZero/README.md) for hardware connection,
+desktop simulation, synchronization, testing, package build, and installation
+instructions.
+
 ## projectZero full control
 
 Main-menu option `9` exposes the complete current projectZero/JanOS command

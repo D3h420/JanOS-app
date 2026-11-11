@@ -2687,14 +2687,14 @@
       "stream": false
     }
   ],
-  "fingerprint": "sha256:511755b3eb5869612f023919c301a329a76dffec45c3099f0b4f33d1d4facfeb",
+  "fingerprint": "sha256:94129cbd1445e094368f6a0567c578d5e6f44ed2f0f2665f229cfdea46374a68",
   "manual_porting": [
     {
       "expression": "command",
       "file": "JanOS_app.py",
       "function": "run_simple_command",
       "line": 1470,
-      "reason": "dynamic command expression requires a native handler review",
+      "reason": "dynamic command expression requires a Cardputer handler review",
       "transport": "send"
     },
     {
@@ -2702,7 +2702,7 @@
       "file": "JanOS_app.py",
       "function": "prompt_and_run_command",
       "line": 1496,
-      "reason": "dynamic command expression requires a native handler review",
+      "reason": "dynamic command expression requires a Cardputer handler review",
       "transport": "oneshot"
     },
     {
@@ -2710,7 +2710,7 @@
       "file": "JanOS_app.py",
       "function": "monitor_command",
       "line": 1539,
-      "reason": "dynamic command expression requires a native handler review",
+      "reason": "dynamic command expression requires a Cardputer handler review",
       "transport": "send"
     },
     {
@@ -2718,7 +2718,7 @@
       "file": "JanOS_app.py",
       "function": "monitor_command",
       "line": 1542,
-      "reason": "dynamic command expression requires a native handler review",
+      "reason": "dynamic command expression requires a Cardputer handler review",
       "transport": "send"
     },
     {
@@ -2726,7 +2726,7 @@
       "file": "JanOS_app.py",
       "function": "monitor_command",
       "line": 1564,
-      "reason": "dynamic command expression requires a native handler review",
+      "reason": "dynamic command expression requires a Cardputer handler review",
       "transport": "send"
     },
     {
@@ -2734,7 +2734,7 @@
       "file": "JanOS_app.py",
       "function": "show_sniffer_results",
       "line": 1724,
-      "reason": "dynamic command expression requires a native handler review",
+      "reason": "dynamic command expression requires a Cardputer handler review",
       "transport": "send"
     },
     {
@@ -2742,7 +2742,7 @@
       "file": "JanOS_app.py",
       "function": "show_sniffer_probes",
       "line": 1793,
-      "reason": "dynamic command expression requires a native handler review",
+      "reason": "dynamic command expression requires a Cardputer handler review",
       "transport": "send"
     },
     {
@@ -2750,7 +2750,7 @@
       "file": "JanOS_app.py",
       "function": "start_deauth_detector",
       "line": 1844,
-      "reason": "dynamic command expression requires a native handler review",
+      "reason": "dynamic command expression requires a Cardputer handler review",
       "transport": "stream"
     },
     {
@@ -2758,7 +2758,7 @@
       "file": "JanOS_app.py",
       "function": "_connect_wifi_sta",
       "line": 3347,
-      "reason": "dynamic command expression requires a native handler review",
+      "reason": "dynamic command expression requires a Cardputer handler review",
       "transport": "send"
     },
     {
@@ -2766,7 +2766,7 @@
       "file": "JanOS_app.py",
       "function": "run_gps_module_command",
       "line": 3711,
-      "reason": "dynamic command expression requires a native handler review",
+      "reason": "dynamic command expression requires a Cardputer handler review",
       "transport": "send"
     },
     {
@@ -2774,7 +2774,7 @@
       "file": "JanOS_app.py",
       "function": "start_wardrive_promisc",
       "line": 3869,
-      "reason": "dynamic command expression requires a native handler review",
+      "reason": "dynamic command expression requires a Cardputer handler review",
       "transport": "stream"
     },
     {
@@ -2782,7 +2782,7 @@
       "file": "JanOS_app.py",
       "function": "wardrive_config_menu",
       "line": 3927,
-      "reason": "dynamic command expression requires a native handler review",
+      "reason": "dynamic command expression requires a Cardputer handler review",
       "transport": "oneshot"
     },
     {
@@ -2790,7 +2790,7 @@
       "file": "JanOS_app.py",
       "function": "set_external_gps_position",
       "line": 3986,
-      "reason": "dynamic command expression requires a native handler review",
+      "reason": "dynamic command expression requires a Cardputer handler review",
       "transport": "oneshot"
     },
     {
@@ -2798,7 +2798,7 @@
       "file": "JanOS_app.py",
       "function": "list_dir_entries",
       "line": 4078,
-      "reason": "dynamic command expression requires a native handler review",
+      "reason": "dynamic command expression requires a Cardputer handler review",
       "transport": "send"
     },
     {
@@ -2806,7 +2806,7 @@
       "file": "JanOS_app.py",
       "function": "system_raw_command",
       "line": 4669,
-      "reason": "dynamic command expression requires a native handler review",
+      "reason": "dynamic command expression requires a Cardputer handler review",
       "transport": "stream"
     },
     {
@@ -2814,7 +2814,7 @@
       "file": "JanOS_app.py",
       "function": "system_raw_command",
       "line": 4671,
-      "reason": "dynamic command expression requires a native handler review",
+      "reason": "dynamic command expression requires a Cardputer handler review",
       "transport": "oneshot"
     },
     {
@@ -2822,7 +2822,7 @@
       "file": "JanOS_app.py",
       "function": "subghz_list_signals",
       "line": 4952,
-      "reason": "dynamic command expression requires a native handler review",
+      "reason": "dynamic command expression requires a Cardputer handler review",
       "transport": "send"
     },
     {
@@ -2830,7 +2830,7 @@
       "file": "JanOS_app.py",
       "function": "execute_command_spec",
       "line": 5216,
-      "reason": "dynamic command expression requires a native handler review",
+      "reason": "dynamic command expression requires a Cardputer handler review",
       "transport": "stream"
     },
     {
@@ -2838,7 +2838,7 @@
       "file": "JanOS_app.py",
       "function": "execute_command_spec",
       "line": 5219,
-      "reason": "dynamic command expression requires a native handler review",
+      "reason": "dynamic command expression requires a Cardputer handler review",
       "transport": "oneshot"
     },
     {
@@ -2846,7 +2846,7 @@
       "file": "JanOS_app.py",
       "function": "_receive_ft_file",
       "line": 5254,
-      "reason": "dynamic command expression requires a native handler review",
+      "reason": "dynamic command expression requires a Cardputer handler review",
       "transport": "send"
     },
     {
@@ -2854,13 +2854,14 @@
       "file": "JanOS_app.py",
       "function": "fs_upload",
       "line": 5336,
-      "reason": "dynamic command expression requires a native handler review",
+      "reason": "dynamic command expression requires a Cardputer handler review",
       "transport": "send"
     }
   ],
   "schema_version": 1,
   "source_fingerprints": {
     "JanOS_app.py": "sha256:1898e2267715702379915cc5f5d03c700e7ca360f72aed6f2c664535370f19f8",
+    "janos_core.py": "sha256:33f8cd6d54a7e44a23df29a9f3bea90ad3bbeb35f23f521fda39f9876559a88d",
     "projectzero_commands.py": "sha256:17ceaa1f023c88a3ad4afbe2cd9e113d4abdbe41d76dd3ed541e47fdc1b31d35"
   }
 }

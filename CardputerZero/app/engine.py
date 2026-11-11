@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Callable, Iterable
 
 from janos_core import (
+    crc32_file,
     fs_path64,
     make_ftb_finish,
     make_ftb_frame,
@@ -23,6 +24,7 @@ from janos_core import (
     parse_ftb_header,
     parse_help_commands,
     parse_network_line,
+    parse_fta_frame,
     validate_fta_frame,
 )
 from projectzero_commands import COMMAND_GROUPS, FILE_COMMANDS, SHARED_COMMAND_GROUPS
@@ -261,7 +263,57 @@ class JanOSEngine:
         return operation
 
     def scan(self) -> Operation:
-        return self.start_command("scan_networks", max_wait=45)
+        if self._active and self._active.state == "running":
+            raise RuntimeError("Another UART operation is already running")
+        operation = Operation("scan_networks")
+        self._active = operation
+
+        def worker() -> None:
+            found = False
+            try:
+                if self.demo:
+                    operation.events.put(EngineEvent(
+                        "line", '"1","LAB5 Demo","","02:00:00:00:00:01","6","WPA2","-42","2.4GHz"'
+                    ))
+                    operation.cancel_event.wait(0.25)
+                    return
+                with self._lock:
+                    assert self.serial
+                    self.serial.reset_input_buffer()
+                    self._write_command("scan_networks")
+                    deadline = time.monotonic() + 45
+                    complete = False
+                    while time.monotonic() < deadline and not operation.cancel_event.is_set():
+                        raw = self.serial.readline()
+                        if not raw:
+                            continue
+                        line = raw.decode("utf-8", errors="replace").strip()
+                        if line and line != "scan_networks" and not line.startswith(">"):
+                            operation.events.put(EngineEvent("line", line))
+                            found = found or parse_network_line(line) is not None
+                            complete = complete or "Scan results printed" in line
+                        if complete:
+                            break
+                    if operation.cancel_event.is_set():
+                        self._write_command("stop")
+                    elif not found:
+                        self.serial.reset_input_buffer()
+                        self._write_command("show_scan_results")
+                        lines = self._read_lines(
+                            8, 1, lambda line: operation.events.put(EngineEvent("line", line))
+                        )
+                        found = any(parse_network_line(line) is not None for line in lines)
+            except Exception as error:
+                operation.state = "error"
+                operation.events.put(EngineEvent("error", str(error)))
+            finally:
+                if operation.state != "error":
+                    operation.state = "cancelled" if operation.cancel_event.is_set() else "done"
+                operation.events.put(EngineEvent("finished", operation.state))
+
+        operation.thread = threading.Thread(target=worker, daemon=True)
+        operation.thread.start()
+        return operation
 
     def fs_list(self, relative: str = "") -> Operation:
         encoded = "-" if not relative else fs_path64(relative)
@@ -306,7 +358,7 @@ class JanOSEngine:
                 operation.state = "error"
                 operation.events.put(EngineEvent("error", str(error)))
             finally:
-                if operation.state != "error":
+                if operation.state == "running":
                     operation.state = "done"
                 operation.events.put(EngineEvent("finished", operation.state))
 
@@ -326,8 +378,20 @@ class JanOSEngine:
             raise TimeoutError(f"UART timeout {len(data)}/{size}")
         return bytes(data)
 
+    def _local_source(self, value: str) -> Path:
+        """Resolve user files without depending on the read-only app cwd."""
+        source = Path(value).expanduser()
+        if not source.is_absolute():
+            source = self.data_dir / "uploads" / source
+        if not source.is_file():
+            raise FileNotFoundError(f"Local file not found: {source}")
+        return source
+
     def download(self, remote: str, local_name: str = "", *, legacy: bool = False) -> Operation:
-        destination = self.data_dir / "downloads" / (local_name or Path(remote).name)
+        safe_name = Path(local_name).name if local_name else Path(remote).name
+        if not safe_name:
+            raise ValueError("A local filename is required")
+        destination = self.data_dir / "downloads" / safe_name
         destination.parent.mkdir(parents=True, exist_ok=True)
         operation = Operation(f"fs get {remote}")
         if self._active and self._active.state == "running":
@@ -357,8 +421,12 @@ class JanOSEngine:
                         if "ERROR" in line or " error " in line.lower():
                             raise RuntimeError(line)
                     fields = dict(re.findall(r"(size|bsize|ack_ms)=([0-9]+)", begin))
+                    if not begin or not all(name in fields for name in ("size", "bsize")):
+                        raise RuntimeError("JanOS did not start an FTB/1 download")
                     total = int(fields["size"])
                     block_size = int(fields["bsize"])
+                    if total < 0 or block_size <= 0 or block_size > 8192:
+                        raise RuntimeError("Invalid FTB/1 transfer metadata")
                     timeout = max(8, int(fields.get("ack_ms", "8000")) / 1000)
                     received = index = 0
                     crc = 0
@@ -366,13 +434,20 @@ class JanOSEngine:
                         while received < total:
                             frame = self._read_exact(16, timeout)
                             frame_index, length, expected_crc = parse_ftb_header(frame)
-                            if frame_index != index or length > block_size:
+                            if (
+                                frame_index != index or length <= 0 or length > block_size
+                                or received + length > total
+                            ):
                                 self.serial.write(b"\x18")
                                 raise RuntimeError("Invalid FTB/1 sequence")
                             payload = self._read_exact(length, timeout)
                             if zlib.crc32(payload) & 0xFFFFFFFF != expected_crc:
                                 self.serial.write(b"\x15")
                                 continue
+                            if operation.cancel_event.is_set():
+                                self.serial.write(b"\x18")
+                                self.serial.flush()
+                                raise InterruptedError("Download cancelled")
                             output.write(payload)
                             crc = zlib.crc32(payload, crc)
                             received += length
@@ -382,16 +457,21 @@ class JanOSEngine:
                             operation.events.put(EngineEvent("progress", f"{received}/{total}"))
                     terminal = self._read_lines(10, 1, lambda line: operation.events.put(EngineEvent("line", line)))
                     done = next((line for line in terminal if "[FT] done" in line), "")
+                    if not done:
+                        raise RuntimeError("Download finished without FTB/1 completion")
                     match = re.search(r"crc32=([0-9a-fA-F]{8})", done)
-                    if match and int(match.group(1), 16) != crc & 0xFFFFFFFF:
+                    if not match or int(match.group(1), 16) != crc & 0xFFFFFFFF:
                         raise RuntimeError("Whole-file CRC mismatch")
                     part.replace(destination)
                     operation.events.put(EngineEvent("saved", str(destination), destination))
+            except InterruptedError as error:
+                operation.state = "cancelled"
+                operation.events.put(EngineEvent("line", str(error)))
             except Exception as error:
                 operation.state = "error"
                 operation.events.put(EngineEvent("error", str(error)))
             finally:
-                if operation.state != "error":
+                if operation.state == "running":
                     operation.state = "done"
                 operation.events.put(EngineEvent("finished", operation.state))
 
@@ -400,7 +480,7 @@ class JanOSEngine:
         return operation
 
     def upload(self, local: str, remote: str, *, replace: bool = False) -> Operation:
-        source = Path(local).expanduser()
+        source = self._local_source(local)
         operation = Operation(f"fs put {remote}")
         if self._active and self._active.state == "running":
             raise RuntimeError("Another UART operation is already running")
@@ -408,14 +488,15 @@ class JanOSEngine:
 
         def worker() -> None:
             try:
-                data = source.read_bytes()
-                file_crc = zlib.crc32(data) & 0xFFFFFFFF
+                total, file_crc = crc32_file(
+                    source, cancelled=operation.cancel_event.is_set
+                )
                 if self.demo:
-                    operation.events.put(EngineEvent("line", f"[SIMULATED] uploaded {len(data)} bytes"))
+                    operation.events.put(EngineEvent("line", f"[SIMULATED] uploaded {total} bytes"))
                     return
                 with self._lock:
                     assert self.serial
-                    command = f"fs put {fs_path64(remote)} {len(data)} {file_crc:08X}" + (" replace" if replace else "")
+                    command = f"fs put {fs_path64(remote)} {total} {file_crc:08X}" + (" replace" if replace else "")
                     self.serial.reset_input_buffer()
                     self._write_command(command)
                     ready = ""
@@ -428,33 +509,224 @@ class JanOSEngine:
                             break
                         if "ERROR" in line:
                             raise RuntimeError(line)
-                    fields = dict(re.findall(r"(bsize|rx_ms)=([0-9]+)", ready))
+                    if not ready:
+                        raise RuntimeError("FS/1 upload was not accepted")
+                    fields = dict(re.findall(
+                        r"(size|crc32|offset|bsize|ack_size|rx_ms)=([0-9A-Fa-f]+)", ready
+                    ))
+                    if int(fields.get("size", "-1")) != total:
+                        raise RuntimeError("FS/1 READY size mismatch")
+                    if int(fields.get("crc32", "-1"), 16) != file_crc:
+                        raise RuntimeError("FS/1 READY CRC mismatch")
+                    if int(fields.get("offset", "-1")) != 0 or int(fields.get("ack_size", "0")) != 32:
+                        raise RuntimeError("FS/1 did not negotiate a fresh ACK32 transfer")
                     block_size = int(fields.get("bsize", "1024"))
+                    if block_size <= 0 or block_size > 8192:
+                        raise RuntimeError("FS/1 returned an invalid block size")
                     timeout = max(8, int(fields.get("rx_ms", "8000")) / 1000 + 2)
                     offset = index = 0
-                    while offset < len(data):
-                        payload = data[offset:offset + block_size]
-                        self.serial.write(make_ftb_frame(index, payload))
-                        self.serial.flush()
-                        offset += len(payload)
-                        validate_fta_frame(self._read_exact(32, timeout), index, offset)
-                        index += 1
-                        operation.events.put(EngineEvent("progress", f"{offset}/{len(data)}"))
+                    with source.open("rb") as input_file:
+                        while offset < total:
+                            if operation.cancel_event.is_set():
+                                self.serial.write(b"\x18")
+                                self.serial.flush()
+                                raise InterruptedError("Upload cancelled")
+                            payload = input_file.read(min(block_size, total - offset))
+                            if not payload:
+                                raise RuntimeError("Local file became shorter during upload")
+                            self.serial.write(make_ftb_frame(index, payload))
+                            self.serial.flush()
+                            offset += len(payload)
+                            validate_fta_frame(self._read_exact(32, timeout), index, offset)
+                            index += 1
+                            operation.events.put(EngineEvent("progress", f"{offset}/{total}"))
                     self.serial.write(make_ftb_finish(index))
                     self.serial.flush()
-                    validate_fta_frame(self._read_exact(32, timeout), index, len(data))
+                    validate_fta_frame(self._read_exact(32, timeout), index, total)
                     self.serial.write(b"\x18")
                     self.serial.flush()
                     terminal = self._read_lines(10, 1, lambda line: operation.events.put(EngineEvent("line", line)))
                     if not any("[FS/1] DONE" in line for line in terminal):
                         raise RuntimeError("Upload finished without FS/1 DONE")
+            except InterruptedError as error:
+                operation.state = "cancelled"
+                operation.events.put(EngineEvent("line", str(error)))
             except Exception as error:
                 operation.state = "error"
                 operation.events.put(EngineEvent("error", str(error)))
             finally:
-                if operation.state != "error":
+                if operation.state == "running":
                     operation.state = "done"
                 operation.events.put(EngineEvent("finished", operation.state))
+
+        operation.thread = threading.Thread(target=worker, daemon=True)
+        operation.thread.start()
+        return operation
+
+    def crack_upload(self, local: str, kind: str) -> Operation:
+        """Synchronize a wordlist or HCCAPX capture through CRACK/1.
+
+        Unlike a generic console command this implements the protocol-4
+        binary phase, resume-prefix validation, framed ACK retries and FIN
+        linger termination. Large wordlists are streamed from disk.
+        """
+        kind = kind.strip().lower()
+        if kind not in {"wordlist", "capture"}:
+            raise ValueError("Crack data kind must be wordlist or capture")
+        source = self._local_source(local)
+        operation = Operation(f"crack_worker receive {kind} {source.name}")
+        if self._active and self._active.state == "running":
+            raise RuntimeError("Another UART operation is already running")
+        self._active = operation
+
+        def emit(kind_: str, message: str, payload: object | None = None) -> None:
+            operation.events.put(EngineEvent(kind_, message, payload))
+
+        def worker() -> None:
+            try:
+                size, file_crc = crc32_file(
+                    source, cancelled=operation.cancel_event.is_set
+                )
+                if size <= 0:
+                    raise ValueError("Crack worker files must not be empty")
+                emit("line", f"Local {kind}: {size} bytes, CRC32={file_crc:08X}")
+                if self.demo:
+                    emit("line", f"[SIMULATED] synchronized {source.name}")
+                    return
+                with self._lock:
+                    assert self.serial
+                    self.serial.reset_input_buffer()
+                    self._write_command(
+                        f"crack_worker receive {kind} {size} {file_crc:08X} 1024 ack32"
+                    )
+                    ready = ""
+                    deadline = time.monotonic() + 15
+                    while time.monotonic() < deadline:
+                        raw = self.serial.readline()
+                        if not raw:
+                            continue
+                        line = raw.decode("utf-8", errors="replace").strip()
+                        if not line:
+                            continue
+                        emit("line", line)
+                        if "[CRACK/1] FILE" in line and "state=present" in line:
+                            return
+                        if "[CRACK/1] READY" in line:
+                            ready = line
+                        if "REJECTED" in line or "SYNC_ERROR" in line:
+                            raise RuntimeError(line)
+                        if line == "[CRACK/1] END" and ready:
+                            break
+                    if not ready:
+                        raise RuntimeError("Crack worker did not enter binary receive mode")
+
+                    fields = dict(
+                        re.findall(
+                            r"(size|crc32|offset|prefix_crc|bsize|rx_ms|ack_size|"
+                            r"ack_wait_ms|prepare_ms)=([0-9A-Fa-f]+)",
+                            ready,
+                        )
+                    )
+                    if int(fields.get("size", "-1")) != size:
+                        raise RuntimeError("Crack worker READY size mismatch")
+                    if int(fields.get("crc32", "-1"), 16) != file_crc:
+                        raise RuntimeError("Crack worker READY CRC mismatch")
+                    if int(fields.get("ack_size", "0")) != 32:
+                        raise RuntimeError("Crack worker did not negotiate ACK32")
+                    offset = int(fields.get("offset", "0"))
+                    if offset < 0 or offset > size:
+                        raise RuntimeError("Crack worker returned an invalid resume offset")
+                    prefix_size, prefix_crc = crc32_file(
+                        source,
+                        limit=offset,
+                        cancelled=operation.cancel_event.is_set,
+                    )
+                    expected_prefix = int(fields.get("prefix_crc", "0"), 16)
+                    if prefix_size != offset or prefix_crc != expected_prefix:
+                        self.serial.write(b"\x18")
+                        self.serial.flush()
+                        raise RuntimeError(
+                            "Resume prefix differs; run crack_worker reset and retry"
+                        )
+
+                    block_size = int(fields.get("bsize", "1024"))
+                    if block_size <= 0 or block_size > 8192:
+                        raise RuntimeError("Crack worker returned an invalid block size")
+                    ack_timeout = max(
+                        3.0, int(fields.get("ack_wait_ms", "2000")) / 1000.0 + 1.0
+                    )
+                    committed = offset
+                    index = 0
+                    with source.open("rb") as input_file:
+                        input_file.seek(offset)
+                        while committed < size:
+                            if operation.cancel_event.is_set():
+                                self.serial.write(b"\x18")
+                                self.serial.flush()
+                                raise InterruptedError("Crack transfer cancelled")
+                            payload = input_file.read(min(block_size, size - committed))
+                            if not payload:
+                                raise RuntimeError("Local file became shorter during transfer")
+                            frame = make_ftb_frame(index, payload)
+                            next_offset = committed + len(payload)
+                            for attempt in range(3):
+                                self.serial.write(frame)
+                                self.serial.flush()
+                                try:
+                                    ack_index, status, ack_offset = parse_fta_frame(
+                                        self._read_exact(32, ack_timeout)
+                                    )
+                                except (TimeoutError, ValueError):
+                                    if attempt == 2:
+                                        raise
+                                    continue
+                                if status == 0x06 and ack_index == index and ack_offset == next_offset:
+                                    break
+                                if status == 0x15 and ack_index == index and ack_offset == committed:
+                                    if attempt == 2:
+                                        raise RuntimeError("Crack worker repeatedly rejected a block")
+                                    continue
+                                raise RuntimeError(
+                                    f"Crack worker transfer aborted (status=0x{status:02x})"
+                                )
+                            else:  # pragma: no cover - loop always breaks or raises
+                                raise RuntimeError("Crack worker ACK retry exhausted")
+                            committed = next_offset
+                            index += 1
+                            emit("progress", f"{committed}/{size}")
+
+                    finish = make_ftb_finish(index)
+                    for attempt in range(3):
+                        self.serial.write(finish)
+                        self.serial.flush()
+                        try:
+                            ack_index, status, ack_offset = parse_fta_frame(
+                                self._read_exact(32, ack_timeout)
+                            )
+                        except (TimeoutError, ValueError):
+                            if attempt == 2:
+                                raise
+                            continue
+                        if status == 0x06 and ack_index == index and ack_offset == size:
+                            break
+                        raise RuntimeError("Crack worker rejected FIN")
+                    self.serial.write(b"\x18")
+                    self.serial.flush()
+                    terminal = self._read_lines(
+                        10, 1, lambda line: emit("line", line)
+                    )
+                    if not any("[CRACK/1] SYNCED" in line for line in terminal):
+                        raise RuntimeError("Crack upload finished without SYNCED")
+            except InterruptedError as error:
+                operation.state = "cancelled"
+                emit("line", str(error))
+            except Exception as error:
+                operation.state = "error"
+                emit("error", str(error))
+            finally:
+                if operation.state == "running":
+                    operation.state = "done"
+                emit("finished", operation.state)
 
         operation.thread = threading.Thread(target=worker, daemon=True)
         operation.thread.start()

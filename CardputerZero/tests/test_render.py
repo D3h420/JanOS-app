@@ -11,7 +11,7 @@ class CardputerRenderTests(unittest.TestCase):
         controller = Controller(demo=True)
         renderer = Renderer()
         try:
-            for screen in ("splash", "home", "ports", "categories", "files", "settings", "about"):
+            for screen in ("splash", "home", "ports", "categories", "files", "crack", "settings", "about"):
                 controller.screen = screen
                 image = renderer.draw(controller.view())
                 self.assertEqual((320, 170), image.size, screen)

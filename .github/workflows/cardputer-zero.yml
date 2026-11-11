@@ -53,8 +53,16 @@ jobs:
       - name: Run root tests
         run: python -m unittest discover -s tests -v
 
+      - name: Check out official Cardputer Zero AppBuilder
+        uses: actions/checkout@v4
+        with:
+          repository: CardputerZero/AppBuilder
+          path: .appbuilder
+
       - name: Build ARM64 Debian package
         run: bash CardputerZero/scripts/build.sh
+        env:
+          APPBUILDER_DIR: ${{ github.workspace }}/.appbuilder
 
       - name: Inspect package metadata
         run: dpkg-deb --info CardputerZero/dist/janos-cardputer_*_arm64.deb

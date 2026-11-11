@@ -163,6 +163,7 @@ def _canonical_bytes(value: Any) -> bytes:
 
 def build_manifest(root: Path) -> Dict[str, Any]:
     app_path = root / "JanOS_app.py"
+    core_path = root / "janos_core.py"
     catalog_path = root / "projectzero_commands.py"
     module = _load_catalog(catalog_path)
     callsites, unresolved = _scan_python_commands(app_path)
@@ -253,6 +254,7 @@ def build_manifest(root: Path) -> Dict[str, Any]:
         "fingerprint": f"sha256:{fingerprint}",
         "source_fingerprints": {
             "JanOS_app.py": f"sha256:{_sha256(app_path.read_bytes())}",
+            "janos_core.py": f"sha256:{_sha256(core_path.read_bytes())}",
             "projectzero_commands.py": f"sha256:{_sha256(catalog_path.read_bytes())}",
         },
     }

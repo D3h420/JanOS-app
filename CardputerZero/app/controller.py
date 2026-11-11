@@ -14,7 +14,11 @@ from .engine import CatalogEntry, EngineEvent, JanOSEngine, Operation
 
 
 HOME = ("Connect / board", "Wi-Fi scan", "Functions", "SD files", "Raw console", "Settings", "Exit")
-FILES = ("List directory", "Download file", "Upload file", "Delete file", "Legacy send_file", "FS capabilities", "Back")
+FILES = ("List directory", "Download file", "Upload file", "Delete file", "Legacy send_file", "FS capabilities", "Crack worker files", "Back")
+CRACK = (
+    "Upload wordlist", "Upload HCCAPX capture", "Capabilities", "Probe cache",
+    "Start shard", "Status", "Cancel job", "Diagnostics", "Reset partial", "Raw arguments", "Back",
+)
 SETTINGS = ("Probe capabilities", "Refresh ports", "UART baud", "Bright accents", "About", "Back")
 
 
@@ -172,6 +176,8 @@ class Controller:
             return ViewState(screen="list", title="WI-FI SCAN", rows=rows or ["No networks"], hint="ENTER select  RIGHT inspect  ESC back", **common)
         if self.screen == "files":
             return ViewState(screen="list", title="SD / FS/1", rows=list(FILES), hint="ENTER select  ESC back", **common)
+        if self.screen == "crack":
+            return ViewState(screen="list", title="CRACK WORKER", rows=list(CRACK), hint="ENTER select  ESC back", **common)
         if self.screen == "settings":
             rows = list(SETTINGS)
             rows[3] = f"Bright accents  {'ON' if self.theme_bright else 'OFF'}"
@@ -235,8 +241,13 @@ class Controller:
     def _execute(self, entry: CatalogEntry, suffix: str) -> None:
         command = f"{entry.command} {suffix}".strip()
         action = suffix.split(maxsplit=1)[0].lower() if suffix.strip() else ""
-        continuous = entry.command.startswith("start_") or (
-            entry.command in {"wps", "jwps", "capture_gateway", "crack_worker"}
+        continuous_commands = {
+            "channel_view", "packet_monitor", "deauth_detector",
+            "subghz_freq_analyzer", "subghz_jam", "subghz_rx",
+            "subghz_scanner", "subghz_tpms", "subghz_weather",
+        }
+        continuous = entry.command.startswith("start_") or entry.command in continuous_commands or (
+            entry.command in {"wps", "jwps", "capture_gateway"}
             and action == "start"
         )
         self._start_operation(self.engine.start_command(command, stream=continuous))
@@ -256,7 +267,11 @@ class Controller:
             if kind == "arguments":
                 assert self.command
                 suffix = values[0].strip()
-                if self.command.confirm:
+                unsupported = bool(
+                    self.engine.available_commands
+                    and self.command.command not in self.engine.available_commands
+                )
+                if self.command.confirm or unsupported:
                     self.pending_confirm = (self.command, suffix)
                     self._goto("confirm")
                 else:
@@ -277,6 +292,31 @@ class Controller:
                 self._start_operation(self.engine.download(values[0].strip(), values[1].strip(), legacy=True))
             elif kind == "uart baud":
                 self._start_operation(self.engine.switch_baud(int(values[0].strip())))
+            elif kind in {"crack upload wordlist", "crack upload capture"}:
+                data_kind = "wordlist" if kind.endswith("wordlist") else "capture"
+                self._start_operation(self.engine.crack_upload(values[0].strip(), data_kind))
+            elif kind in {"crack probe", "crack reset"}:
+                action = "probe" if kind.endswith("probe") else "reset"
+                data_kind, size, checksum = (value.strip() for value in values)
+                self._start_operation(
+                    self.engine.start_command(
+                        f"crack_worker {action} {data_kind} {size} {checksum}", max_wait=15
+                    )
+                )
+            elif kind == "crack start":
+                suffix = " ".join(value.strip() for value in values)
+                self._start_operation(
+                    self.engine.start_command(f"crack_worker start {suffix}", max_wait=20)
+                )
+            elif kind == "crack cancel":
+                job = values[0].strip()
+                self._start_operation(
+                    self.engine.start_command(f"crack_worker cancel {job}".strip(), max_wait=10)
+                )
+            elif kind == "crack raw":
+                suffix = values[0].strip()
+                if suffix:
+                    self._start_operation(self.engine.start_command(f"crack_worker {suffix}", max_wait=120))
         except Exception as error:
             self.error = str(error)
             self._goto("error")
@@ -298,11 +338,18 @@ class Controller:
                     "arguments": "command",
                     "raw command": "home",
                     "uart baud": "settings",
+                    "crack upload wordlist": "crack",
+                    "crack upload capture": "crack",
+                    "crack probe": "crack",
+                    "crack reset": "crack",
+                    "crack start": "crack",
+                    "crack cancel": "crack",
+                    "crack raw": "crack",
                 }.get(self.form_kind, "files")
                 self._goto(target)
             elif key == "BACKSPACE":
                 self.input_text = self.input_text[:-1]
-            elif key == "TEXT" and char and len(self.input_text) < 180:
+            elif key == "TEXT" and char and len(self.input_text) < 2048:
                 self.input_text += char
             elif key == "ENTER":
                 self.form_values[self.form_index] = self.input_text
@@ -330,6 +377,7 @@ class Controller:
             back = {
                 "home": "exit", "ports": "home", "categories": "home", "commands": "categories",
                 "command": "commands", "scan_results": "home", "files": "home", "settings": "home",
+                "crack": "files",
                 "about": "settings", "error": "home", "log": "home", "connecting": "home",
             }
             target = back.get(self.screen, "home")
@@ -392,9 +440,14 @@ class Controller:
                 self._start_form("uart baud", ["115200..4000000"])
             elif self.command.command == "fs":
                 self._goto("files")
+            elif self.command.command == "crack_worker":
+                self._goto("crack")
             elif self.command.arguments:
                 self._start_form("arguments", [self.command.arguments])
-            elif self.command.confirm:
+            elif self.command.confirm or (
+                self.engine.available_commands
+                and self.command.command not in self.engine.available_commands
+            ):
                 self.pending_confirm = (self.command, ""); self._goto("confirm")
             else:
                 self._execute(self.command, "")
@@ -415,7 +468,36 @@ class Controller:
             elif item == "Delete file": self._start_form("delete file", ["Remote relative path"])
             elif item == "Legacy send_file": self._start_form("legacy send_file", ["Absolute remote path", "Local filename (blank = same)"])
             elif item == "FS capabilities": self._start_operation(self.engine.start_command("fs hello"))
+            elif item == "Crack worker files": self._goto("crack")
             else: self._goto("home")
+            return
+        if self.screen == "crack" and key == "ENTER":
+            item = CRACK[self.selected]
+            if item == "Upload wordlist":
+                self._start_form("crack upload wordlist", ["File in uploads/ or absolute path"])
+            elif item == "Upload HCCAPX capture":
+                self._start_form("crack upload capture", ["HCCAPX in uploads/ or absolute path"])
+            elif item == "Capabilities":
+                self._start_operation(self.engine.start_command("crack_worker capabilities", max_wait=10))
+            elif item == "Probe cache":
+                self._start_form("crack probe", ["wordlist or capture", "Size in bytes", "CRC32 hex"])
+            elif item == "Start shard":
+                self._start_form("crack start", [
+                    "Job ID", "Capture size", "Capture CRC32", "Wordlist size",
+                    "Wordlist CRC32", "Start byte", "End byte (0 = EOF)",
+                ])
+            elif item == "Status":
+                self._start_operation(self.engine.start_command("crack_worker status", max_wait=10))
+            elif item == "Cancel job":
+                self._start_form("crack cancel", ["Job ID (blank = current)"])
+            elif item == "Diagnostics":
+                self._start_operation(self.engine.start_command("crack_worker diag", max_wait=10))
+            elif item == "Reset partial":
+                self._start_form("crack reset", ["wordlist or capture", "Size in bytes", "CRC32 hex"])
+            elif item == "Raw arguments":
+                self._start_form("crack raw", ["Arguments after crack_worker"])
+            else:
+                self._goto("files")
             return
         if self.screen == "settings" and key == "ENTER":
             item = SETTINGS[self.selected]

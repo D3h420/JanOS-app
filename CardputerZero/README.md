@@ -8,14 +8,15 @@ Python implementation instead of maintaining a second copy of JanOS logic.
 
 The root project remains the source of truth:
 
-- `../JanOS_app.py` owns the established controller behaviour and UART
-  protocols;
+- `../JanOS_app.py` owns the established terminal controller behaviour;
+- `../janos_core.py` is the standard-library-only protocol core imported by
+  both frontends;
 - `../projectzero_commands.py` owns the declarative projectZero command
   catalog;
 - `scripts/sync_from_python.py` derives the Cardputer resources from those
   Python sources and records their source hashes;
-- the code under `CardputerZero/app/` contains only the small-screen UI,
-  keyboard mapping, device discovery, and Cardputer-specific integration.
+- the code under `CardputerZero/app/` contains the small-screen UI, keyboard
+  mapping, serial transaction adapter, and Cardputer-specific integration.
 
 Do not edit generated files by hand. A stale generated catalog is treated as a
 build and CI error.
@@ -61,8 +62,8 @@ Zero does not replace that board's ESP32-C5 radio.
 1. Put the Cardputer Zero USB switch in **Host** mode.
 2. Connect the MonsterC5 USB serial port to Cardputer Zero USB-A or the
    host-capable USB-C port with a data cable.
-3. Start the application and select the detected `/dev/ttyACM*` or
-   `/dev/ttyUSB*` device if automatic selection finds more than one candidate.
+3. Open **Connect / board** and select the detected `/dev/ttyACM*` or
+   `/dev/ttyUSB*` device.
 
 USB serial provides grounding, device discovery, and the least ambiguous
 wiring. Only one program may own the serial device at a time; close terminal
@@ -132,14 +133,15 @@ directory copy.
   and stream/one-shot modes from `projectzero_commands.py`;
 - generic raw-command availability and capability matching against the live
   board's `help` response;
-- shared protocol/configuration constants explicitly exported by the sync
-  script;
+- source fingerprints for the terminal app, shared core, and catalog; the
+  shared protocol functions themselves are imported directly from
+  `janos_core.py`, so there is no generated copy to drift;
 - the source fingerprint used by `--check` and CI.
 
 ### Deliberately Cardputer-specific
 
 - screen layout, pagination, colors, focus, and 320 x 170 rendering;
-- keyboard shortcuts, short/long `Esc`, text entry, and evdev discovery;
+- keyboard shortcuts, `Esc`, text entry, and evdev discovery;
 - APPLaunch lifecycle and Debian package metadata;
 - Linux serial-device selection and permission diagnostics.
 
@@ -160,14 +162,32 @@ The interface is keyboard-first and optimized for the 320 x 170 display:
 
 - arrows move the selection or scroll output;
 - `Enter` opens/accepts;
-- short `Esc` cancels or returns one level;
-- long `Esc` exits to APPLaunch;
-- printable keys enter arguments and filter long lists;
+- `Esc` cancels or returns one level; from HOME it exits to APPLaunch;
+- printable keys enter command arguments and paths;
 - the footer always shows the currently valid actions.
 
 The APPLaunch status area may occupy the top 20 pixels. Views therefore avoid
 assuming that all 170 rows are available. Long UART output is bounded and
 scrollable instead of being retained indefinitely in the 512 MB address space.
+
+### Implemented control surface
+
+- serial discovery, connect/disconnect, firmware version and live `help`
+  capability probing;
+- the complete generated command browser (152 JanOS-app entries, including
+  all 131 commands registered by the audited projectZero firmware);
+- Wi-Fi scan with delayed-result fallback, result browsing, target selection,
+  and inspection;
+- grouped one-shot and streaming commands, raw console access, confirmation
+  for disruptive/unreported commands, bounded logs, and cancellation;
+- FS/1 directory listing, safe path encoding, CRC-checked FTB/1 download,
+  streaming transactional ACK32 upload, removal, capabilities, and legacy
+  absolute-path download;
+- resumable CRACK/1 protocol-4 wordlist/HCCAPX upload with prefix CRC,
+  block replay, FIN handling, cache probe/reset, shard start/status/cancel,
+  and diagnostics;
+- negotiated JanOS UART rates from 115200 to 4 Mbaud with automatic fallback
+  when confirmation fails.
 
 ## Development workflow
 
@@ -188,12 +208,20 @@ python3 CardputerZero/scripts/sync_from_python.py --check
 
 ### 2. Run the desktop/development frontend
 
+Run a fully simulated board in the desktop Cardputer window:
+
 ```bash
-python3 -m CardputerZero.app.main --dev
+python3 -m CardputerZero.app.main --dev --demo
 ```
 
-Development mode uses a host window/input adapter or terminal fallback and can
-connect to a real USB serial board. It does not emulate the ESP32-C5 radio.
+Or use the same desktop UI with a real serial board:
+
+```bash
+python3 -m CardputerZero.app.main --dev --device /dev/ttyUSB0
+```
+
+The simulator exercises UI and state transitions; it does not emulate the
+ESP32-C5 radio.
 
 ### 3. Run tests
 
@@ -244,6 +272,14 @@ Return to HOME, refresh/restart APPLaunch if necessary, and open **JanOS
 Controller**. Package upgrades preserve user settings. To test directly over
 SSH, run the installed launcher command shown in its `.desktop` file; do not
 run a second instance while APPLaunch owns it.
+
+Downloaded board files are stored in
+`~/.local/state/janos-cardputer/downloads/`. For FS/1 or crack-worker uploads,
+copy source files to `~/.local/state/janos-cardputer/uploads/` and enter their
+filename, or enter an absolute local path. `SD files > Crack worker files`
+implements the real resumable CRACK/1 protocol-4 transfer for wordlists and
+HCCAPX captures; it also exposes cache probe/reset, shard start/status/cancel,
+and diagnostics.
 
 ## Adding a feature in the future
 

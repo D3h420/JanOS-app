@@ -38,6 +38,18 @@ class CardputerControllerTests(unittest.TestCase):
         self.assertEqual("log", self.controller.screen)
         self.assertEqual("version", self.controller.operation.command)
 
+    def test_crack_worker_has_binary_upload_workflow(self):
+        self.controller.selected = 3
+        self.controller.handle("ENTER")
+        self.assertEqual("files", self.controller.screen)
+        self.controller.selected = 6
+        self.controller.handle("ENTER")
+        self.assertEqual("crack", self.controller.screen)
+        self.controller.selected = 0
+        self.controller.handle("ENTER")
+        self.assertEqual("input", self.controller.screen)
+        self.assertEqual("crack upload wordlist", self.controller.form_kind)
+
 
 if __name__ == "__main__":
     unittest.main()
