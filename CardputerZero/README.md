@@ -1,4 +1,4 @@
-# JanOS Controller for M5Stack Cardputer Zero
+# JanOS for M5Stack Cardputer Zero
 
 This directory contains the native Cardputer Zero frontend for the JanOS
 controller. It is not an ESP32 firmware and must not be built with Arduino,
@@ -67,7 +67,7 @@ Zero does not replace that board's ESP32-C5 radio.
 
 USB serial provides grounding, device discovery, and the least ambiguous
 wiring. Only one program may own the serial device at a time; close terminal
-monitors before launching JanOS Controller.
+monitors before launching JanOS.
 
 ### Grove/direct UART
 
@@ -268,8 +268,8 @@ ssh <user>@<cardputer-zero-ip> \
   'sudo apt install --no-install-recommends /tmp/janos-cardputer_*_arm64.deb'
 ```
 
-Return to HOME, refresh/restart APPLaunch if necessary, and open **JanOS
-Controller**. Package upgrades preserve user settings. To test directly over
+Return to HOME, refresh/restart APPLaunch if necessary, and open **JanOS**.
+Package upgrades preserve user settings. To test directly over
 SSH, run the installed launcher command shown in its `.desktop` file; do not
 run a second instance while APPLaunch owns it.
 

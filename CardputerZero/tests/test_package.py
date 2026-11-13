@@ -31,6 +31,8 @@ class CardputerPackageTests(unittest.TestCase):
             self.assertTrue((app / "CardputerZero/app/controller.py").is_file())
             self.assertTrue((app / "CardputerZero/generated/command_catalog.json").is_file())
             self.assertTrue((stage / "usr/share/APPLaunch/bin/janos-cardputer").is_file())
+            icon = stage / "usr/share/APPLaunch/share/images/janos-cardputer.png"
+            self.assertTrue(icon.is_file())
 
 
 if __name__ == "__main__":

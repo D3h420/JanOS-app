@@ -16,6 +16,6 @@ tar -C "$ROOT" --exclude='__pycache__' --exclude='*.pyc' -cf - \
 
 install -m 0755 "$ROOT/CardputerZero/packaging/janos-cardputer" \
     "$STAGE$INSTALL_PREFIX/bin/janos-cardputer"
-install -m 0644 "$ROOT/CardputerZero/packaging/icon.xpm" \
-    "$STAGE$INSTALL_PREFIX/share/images/janos-cardputer.xpm"
+install -m 0644 "$ROOT/CardputerZero/packaging/icon.png" \
+    "$STAGE$INSTALL_PREFIX/share/images/janos-cardputer.png"
 

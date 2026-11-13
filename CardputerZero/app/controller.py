@@ -25,7 +25,7 @@ SETTINGS = ("Probe capabilities", "Refresh ports", "UART baud", "Bright accents"
 @dataclass
 class ViewState:
     screen: str = "splash"
-    title: str = "JanOS Controller"
+    title: str = "JanOS"
     rows: list[str] = field(default_factory=list)
     selected: int = 0
     scroll: int = 0
@@ -184,7 +184,7 @@ class Controller:
             return ViewState(screen="list", title="SETTINGS", rows=rows, hint="ENTER select  ESC back", **common)
         if self.screen == "about":
             rows = self._wrap([
-                "JanOS Controller / Cardputer Zero",
+                "JanOS / Cardputer Zero",
                 "Native ARM64 APPLaunch frontend",
                 "Shared Python command and protocol core",
                 f"Catalog: {len({entry.command for entry in self.engine.catalog})} commands",
